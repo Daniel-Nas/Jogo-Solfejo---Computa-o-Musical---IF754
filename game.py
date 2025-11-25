@@ -1,11 +1,8 @@
 import pygame
 import numpy as np
 import sounddevice as sd
-import librosa
 import threading
 import time
-import math
-import random
 
 # === Solfejo - jogo educativo de identificação de músicas por notas ===
 # Requisitos: pygame, sounddevice, librosa, numpy
