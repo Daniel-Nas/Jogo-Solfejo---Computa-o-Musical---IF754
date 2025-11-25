@@ -1,4 +1,4 @@
-Para compilar (game.py) são necessárias as seguintes bibliotecas:
+<h1>Para compilar (game.py) são necessárias as seguintes bibliotecas:</h1>
 pip install pygame numpy sounddevice librosa
 
 teste.py é uma implementação de afinador que se encontra com o mesmo problema (Notas agudas funcionam em graves não), são necessárias as bibliotecas:
