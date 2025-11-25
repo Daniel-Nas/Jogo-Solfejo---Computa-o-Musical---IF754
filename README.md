@@ -6,6 +6,3 @@ pip install numpy pyaudio aubio
 
 e para compilar: 
 python teste.py  ou python teste.py -input (numero do mic) se tiver mais de um.
-
-
-
