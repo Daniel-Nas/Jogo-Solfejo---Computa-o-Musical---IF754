@@ -6,6 +6,7 @@ import pyaudio
 import aubio
 import math
 import random
+from utils import calculate_similarity, is_similar_enough
 
 # IMPORTAÇÃO DA NOVA ESTRUTURA
 from Musicas import BIBLIOTECA, Musica
@@ -736,18 +737,27 @@ while running:
 
             if event.type == pygame.KEYDOWN and input_active:
                 if event.key == pygame.K_RETURN:
-                    guess = user_text.strip().lower()
-                    real = (current_song_data.nome or "").lower()
-                    if guess in real and len(guess) > 3:
+                    guess = user_text.strip()
+                    real = current_song_data.nome or ""
+
+                    if is_similar_enough(guess, real):
                         score += 5
-                        message = f"ACERTOU: {current_song_data.nome}!"
+                        similarity = calculate_similarity(guess, real)
+
+                        # Mensagem diferente se acertou exatamente ou com pequenos erros
+                        if similarity == 1.0:
+                            message = f"✓ PERFEITO: {current_song_data.nome}!"
+                        else:
+                            message = f"✓ ACERTOU: {current_song_data.nome}!"
+
                         start_round()
                         if current_song_seq:
                             n = current_song_seq[0]
                             threading.Thread(target=play_note, args=(NOTE_FREQS[n[0]], n[1]), daemon=True).start()
                     else:
                         lives -= 1
-                        message = f"Errou! Vidas: {lives}"
+                        similarity = calculate_similarity(guess, real)
+                        message = f"✗ Errou! Era '{current_song_data.nome}'. Vidas: {lives}"
                         if lives <= 0:
                             state = 'gameover'
                     user_text = ""
