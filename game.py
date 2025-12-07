@@ -1,33 +1,110 @@
 import pygame
 import numpy as np
-import sounddevice as sd
 import threading
 import time
+import pyaudio
+import aubio
+import math
+import random
 
-# === Solfejo - jogo educativo de identificação de músicas por notas ===
-# Requisitos: pygame, sounddevice, librosa, numpy
-# Execute com o Python 3.11 (onde as dependências foram instaladas).
+# IMPORTAÇÃO DA NOVA ESTRUTURA
+from Musicas import BIBLIOTECA, Musica
 
-# --------------------------------------
-# Configurações
-# --------------------------------------
-SAMPLE_RATE = 44100
-LISTEN_DURATION = 1.5  # segundos para capturar a voz do jogador
-SEMITONE_TOLERANCE = 0.6  # tolerância em semitons para considerar "acertou"
+# ==============================================================================
+# CONFIGURAÇÕES GERAIS
+# ==============================================================================
+SAMPLE_RATE = 44100     # Padrão mais seguro
+LISTEN_DURATION = 10.0  
+REQUIRED_STABILITY = 1.0 
+A4_TUNING = 440.0       
 
-# --------------------------------------
-# Inicialização Pygame
-# --------------------------------------
+# AJUSTE FINO DE AFINAÇÃO
+TUNING_OFFSET = 0  
+TUNING_MULTIPLIER = 2 ** (TUNING_OFFSET / 12.0)
+
+# ==============================================================================
+# 1. CLASSE PITCH DETECTOR
+# ==============================================================================
+class PitchDetector:
+    def __init__(self):
+        self.BUFFER_SIZE = 1024
+        self.FORMAT = pyaudio.paFloat32
+        self.CHANNELS = 1
+        self.RATE = 44100 
+        self.A4 = A4_TUNING
+        self.NOTAS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        self.running = False
+        self.current_note = None
+        self.current_freq = 0.0
+        self._thread = None
+
+    def _freq_para_nota(self, freq):
+        if freq <= 0: return None
+        try:
+            n = 12 * math.log2(freq / self.A4) + 69
+            n_round = int(round(n))
+            nome = self.NOTAS[n_round % 12]
+            oitava = (n_round // 12) - 1
+            return f"{nome}{oitava}"
+        except ValueError:
+            return None
+
+    def _listen_loop(self):
+        p = pyaudio.PyAudio()
+        pitch_detector = aubio.pitch("default", self.BUFFER_SIZE*4, self.BUFFER_SIZE, self.RATE)
+        pitch_detector.set_unit("Hz")
+        pitch_detector.set_silence(-40)
+
+        try:
+            stream = p.open(format=self.FORMAT, channels=self.CHANNELS, rate=self.RATE, input=True, frames_per_buffer=self.BUFFER_SIZE)
+            while self.running:
+                try:
+                    audio_data = stream.read(self.BUFFER_SIZE, exception_on_overflow=False)
+                    samples = np.frombuffer(audio_data, dtype=np.float32)
+                    freq = pitch_detector(samples)[0]
+                    self.current_freq = float(freq)
+                    self.current_note = self._freq_para_nota(freq)
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"Erro no detector: {e}")
+        finally:
+            if 'stream' in locals():
+                stream.stop_stream()
+                stream.close()
+            p.terminate()
+
+    def start(self):
+        if not self.running:
+            self.running = True
+            self._thread = threading.Thread(target=self._listen_loop, daemon=True)
+            self._thread.start()
+
+    def stop(self):
+        self.running = False
+        if self._thread:
+            self._thread.join(timeout=1.0)
+            self._thread = None
+        self.current_note = None
+        self.current_freq = 0.0
+
+    def get_note(self): return self.current_note
+    def get_freq(self): return self.current_freq
+
+detector = PitchDetector()
+
+# ==============================================================================
+# 2. INICIALIZAÇÃO E UI
+# ==============================================================================
+# Aumentei o buffer para 4096 para evitar "estalos" (crackling)
+pygame.mixer.pre_init(frequency=SAMPLE_RATE, size=-16, channels=2, buffer=4096)
 pygame.init()
-pygame.mixer.init(frequency=SAMPLE_RATE, size=-16, channels=2)
+
 WIDTH, HEIGHT = 900, 600
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Solfejo - Jogo de Solfejo")
-FONT = pygame.font.SysFont("arial", 24)
-BIG = pygame.font.SysFont("arial", 34)
-SMALL = pygame.font.SysFont("arial", 18)
-CLOCK = pygame.time.Clock()
+pygame.display.set_caption("Solfejo - Piano Suave")
 
+# Cores
 WHITE = (255, 255, 255)
 DARK = (30, 30, 30)
 ACCENT = (70, 140, 255)
@@ -35,29 +112,22 @@ GREEN = (100, 220, 100)
 RED = (255, 90, 90)
 YELLOW = (255, 220, 80)
 
-# --------------------------------------
-# Notas e frequências (temperamento igual, A4=440Hz)
-# --------------------------------------
-NOTAS_NAME = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-NOTE_FREQS = {
-    "C": 261.63, "C#": 277.18, "D": 293.66,
-    "D#": 311.13, "E": 329.63, "F": 349.23,
-    "F#": 369.99, "G": 392.00, "G#": 415.30,
-    "A": 440.00, "A#": 466.16, "B": 493.88
-}
+FONT = pygame.font.SysFont("arial", 24)
+BIG = pygame.font.SysFont("arial", 34)
+SMALL = pygame.font.SysFont("arial", 18)
+CLOCK = pygame.time.Clock()
 
-# --------------------------------------
-# Base de "músicas" (cada música é sequência de notas)
-# --------------------------------------
-SONGS = {
-    "Brilha Brilha (tom Ré)": ["D", "D", "A", "A", "B", "B", "A"],
-    "Parabéns Pra Você": ["C", "C", "D", "C", "F", "E"],
-    "Cai Cai Balão": ["C", "C", "G", "G", "A", "A", "G"]
-}
+# Tabela de Frequências Base
+NOTAS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+NOTE_FREQS = {}
+for i, nome in enumerate(NOTAS):
+    distancia = i - 9
+    freq = A4_TUNING * (2 ** (distancia / 12.0))
+    NOTE_FREQS[nome] = freq
 
-# --------------------------------------
-# Botão simples
-# --------------------------------------
+# ==============================================================================
+# 3. SINTETIZADOR DE PIANO CORRIGIDO (LIMITER + VOLUME BAIXO)
+# ==============================================================================
 class Button:
     def __init__(self, text, rect, color=ACCENT, hover=None):
         self.text = text
@@ -77,310 +147,191 @@ class Button:
     def clicked(self, event):
         return event.type == pygame.MOUSEBUTTONDOWN and self.rect.collidepoint(event.pos)
 
-# --------------------------------------
-# Áudio: geração de nota simples (seno) e reprodução - agora retorna buffer pra análise
-# Adicionado: parâmetro record para controlar se devemos salvar na lista played_notes
-# --------------------------------------
-played_notes = []  # lista de frequências (float) que foram efetivamente tocadas (ordem)
+played_notes = [] 
+currently_playing = False
 
-def synth_note(freq, duration=0.8, volume=0.5):
+def synth_piano_note(base_freq, duration=1.0, volume=0.3): # Volume padrão reduzido para 0.3
     """
-    Retorna (stereo_int16, mono_float32_normalized)
-    stereo_int16 -> para pygame.sndarray
-    mono_float32_normalized -> para análise (valores em [-1,1])
+    Gera som de piano elétrico com proteção contra distorção (Clipping).
     """
-    t = np.linspace(0, duration, int(SAMPLE_RATE * duration), False)
-    wave = (np.sin(2*np.pi*freq*t) * 32767 * volume).astype(np.int16)
+    if base_freq <= 0: return None
+    
+    # Aplica correção de afinação
+    freq = base_freq * TUNING_MULTIPLIER
+    
+    length = int(SAMPLE_RATE * duration)
+    t = np.linspace(0, duration, length, False)
+    
+    # 1. Fundamental
+    wave = np.sin(2 * np.pi * freq * t)
+    
+    # 2. Harmônicos (Reduzidos para evitar sobrecarga)
+    wave += 0.4 * np.sin(2 * np.pi * (freq * 2) * t) 
+    wave += 0.1 * np.sin(2 * np.pi * (freq * 3) * t)
+    
+    # 3. Envelope (Decay Suave)
+    decay = np.exp(-t * 3) 
+    wave *= decay
+    
+    # 4. NORMALIZAÇÃO E LIMITER (O SEGREDO PARA NÃO ESTOURAR)
+    # Primeiro, normaliza para o maior pico ser 1.0
+    max_val = np.max(np.abs(wave))
+    if max_val > 0:
+        wave = wave / max_val
+    
+    # Aplica o volume desejado
+    wave = wave * volume
+    
+    # CLAMP: Garante que NENHUM número passe de 0.99 ou -0.99
+    # Isso impede a distorção digital (clipping)
+    wave = np.clip(wave, -0.99, 0.99)
+    
+    # 5. Converte para 16-bit
+    wave = (wave * 32767).astype(np.int16)
+    
     stereo = np.column_stack((wave, wave))
-    mono_float = wave.astype(np.float32) / 32767.0
-    return stereo, mono_float
+    return stereo
 
-
-def play_note(freq, duration=0.8, wait=False, record=True):
-    """
-    Reproduz a nota via pygame (sem retornar análise).
-    se record=False não adiciona a freq em played_notes (usado para replays).
-    """
+def play_note(freq, duration, record=True):
     global currently_playing
     currently_playing = True
+    
     if record:
-        played_notes.append(float(freq))
-    stereo_buf, _ = synth_note(freq, duration)
-    snd = pygame.sndarray.make_sound(stereo_buf)
-    channel = snd.play()
-    while channel.get_busy():
-        pygame.time.wait(10)
-    currently_playing = False
-
-
-def play_note_and_analyze(freq, duration=0.8, record=True):
-    """
-    Reproduz a nota e também detecta a frequência diretamente do buffer sintetizado.
-    Essa detecção é 100% confiável para saber o que o Pygame emitiu.
-    O resultado fica em last_buffer_detected_freq.
-    """
-    global currently_playing, last_buffer_detected_freq
-    currently_playing = True
-    if record:
-        played_notes.append(float(freq))
-    stereo_buf, mono_float = synth_note(freq, duration)
-    snd = pygame.sndarray.make_sound(stereo_buf)
-    channel = snd.play()
-
-    # Detectar pitch do buffer sintetizado (imediato)
-    detected = detect_pitch_autocorr(mono_float, SAMPLE_RATE)
-    last_buffer_detected_freq = detected
-
-    while channel.get_busy():
-        pygame.time.wait(10)
-    currently_playing = False
-
-# --------------------------------------
-# Funções de pitch detection (autocorrelação + interpolação)
-# aplicáveis tanto para buffer sintetizado quanto para áudio gravado
-# --------------------------------------
-def parabolic_interpolation(y, x):
-    """Refina pico para precisão sub-amostral."""
-    if x <= 0 or x >= (len(y)-1):
-        return x, y[x]
-    alpha = y[x-1]
-    beta  = y[x]
-    gamma = y[x+1]
-    p = 0.5 * (alpha - gamma) / (alpha - 2*beta + gamma)
-    xp = x + p
-    yp = beta - 0.25 * (alpha - gamma) * p
-    return xp, yp
-
-def detect_pitch_autocorr(audio, sr):
-    """
-    Detecta frequência fundamental de um buffer mono (-1..1).
-    Retorna freq em Hz (float) ou None.
-    """
-    x = np.array(audio, dtype=np.float64)
-    if x.size == 0:
-        return None
-    x = x - np.mean(x)
-    m = np.max(np.abs(x))
-    if m < 1e-6:
-        return None
-    x = x / m
-
-    # janela para reduzir leakage
-    w = np.hanning(len(x))
-    xw = x * w
-
-    # autocorrelação via FFT (rápida)
-    n = len(xw)
-    # nfft: power of 2 sufficiently large
-    nfft = 1 << ((2*n-1).bit_length())
-    X = np.fft.rfft(xw, n=nfft)
-    S = np.abs(X)**2
-    corr = np.fft.irfft(S, n=nfft)[:n]
-
-    # normalizar (evita overflow)
-    maxcorr = np.max(np.abs(corr))
-    if maxcorr == 0:
-        return None
-    corr = corr / maxcorr
-
-    # encontrar primeiro ponto onde a derivada vira positiva (após zero-lag)
-    d = np.diff(corr)
-    starts = np.where(d > 0)[0]
-    if starts.size == 0:
-        return None
-    start = int(starts[0])
-
-    # encontrar pico máximo após start
-    peak = start + int(np.argmax(corr[start:]))
-    if peak <= 0:
-        return None
-
-    # interpolação parabólica para sub-amostra
-    peak_x, _ = parabolic_interpolation(corr, peak)
-    if peak_x == 0:
-        return None
-
-    freq = sr / peak_x
-    if not np.isfinite(freq) or freq <= 0:
-        return None
-    return float(freq)
-
-# Detector que processa áudio gravado (microfone/loopback) em janelas e retorna mediana
-def detect_pitch_from_audio(audio, sr):
-    a = np.array(audio, dtype=np.float64).flatten()
-    if a.size == 0:
-        return None
-    # limpar
-    a = np.nan_to_num(a)
-    a -= np.mean(a)
-    mx = np.max(np.abs(a))
-    if mx < 1e-6:
-        return None
-    a /= mx
-
-    hop = 1024
-    block = 2048
-    freqs = []
-    for start in range(0, len(a) - block + 1, hop):
-        blk = a[start:start+block]
-        f = detect_pitch_autocorr(blk, sr)
-        if f is not None and 50 < f < 5000:
-            freqs.append(f)
-    if len(freqs) == 0:
-        return None
-    return float(np.median(freqs))
-
-# --------------------------------------
-# Áudio: gravação
-# --------------------------------------
-def record_audio(duration=LISTEN_DURATION, sample_rate=SAMPLE_RATE):
-    rec = sd.rec(int(duration * sample_rate), samplerate=sample_rate, channels=1, dtype='float32')
-    sd.wait()
-    return rec.flatten(), sample_rate
-
-# (opcional) tenta encontrar device loopback no Windows; retorna device index ou None
-def find_loopback_device():
+        played_notes.append((float(freq), duration))
+    
     try:
-        devices = sd.query_devices()
-        for i, d in enumerate(devices):
-            name = d['name'].lower()
-            if 'loopback' in name or 'stereo mix' in name or 'wasapi' in d.get('hostapi', '').lower():
-                return i
-    except Exception:
-        pass
-    return None
-
-def record_loopback(duration=LISTEN_DURATION, sr=SAMPLE_RATE):
-    dev = find_loopback_device()
-    if dev is None:
-        return record_audio(duration, sr)
-    rec = sd.rec(int(duration * sr), samplerate=sr, channels=1, dtype='float32', device=dev)
-    sd.wait()
-    return rec.flatten(), sr
-
-# --------------------------------------
-# Funções utilitárias de nota
-# --------------------------------------
-def freq_to_note_name(freq):
-    if freq is None or freq <= 0:
-        return None
-    n = 12 * np.log2(freq / 440.0)
-    midi = int(round(n)) + 69
-    name = NOTAS_NAME[midi % 12]
-    return name
-
-def is_pitch_match(detected_freq, target_freq):
-    """
-    Retorna True se a nota detectada possui o mesmo nome que a nota alvo,
-    ignorando oitavas (por exemplo: C3, C4, C5 são todos "C").
-    """
-    if detected_freq is None or target_freq is None:
-        return False
-
-    detected_name = freq_to_note_name(detected_freq)
-    target_name = freq_to_note_name(target_freq)
-
-    return detected_name == target_name
-
-# --------------------------------------
-# Estado do jogo
-# --------------------------------------
-currently_playing = False
-last_buffer_detected_freq = None  # freq detectada do buffer sintetizado (debug)
-detected_name = None
-detected_freq = None
-detector_result = None
-
-state = "menu"  # menu, rules, settings, play, detector, gameover
-lives = 3
-score = 0
-current_song_name = None
-current_song_seq = []
-current_index = 0
-
-# elementos UI
-btn_start = Button("INICIAR", (WIDTH//2 - 140, 180, 280, 60))
-btn_rules = Button("REGRAS", (WIDTH//2 - 140, 260, 280, 60))
-btn_conf = Button("CONFIGURAÇÕES", (WIDTH//2 - 140, 340, 280, 60))
-
-btn_back = Button("VOLTAR", (20, HEIGHT-70, 120, 50))
-
-# Tela de detector: botões
-btn_play_target = Button("Ouvir Nota", (WIDTH-220, 120, 180, 50), color=YELLOW)
-btn_start_listen = Button("Cantar (Gravar)", (WIDTH-220, 190, 180, 50), color=GREEN)
-btn_skip_confirm = Button("Liberar Próxima", (WIDTH-220, 260, 180, 50), color=ACCENT)
-
-# Tela de jogo: ações
-btn_repeat = Button("Repetir Notas", (50, 240, 280, 60), color=(120,160,220))
-btn_skip = Button("SKIP (liberar próxima)", (50, 320, 280, 60), color=(200,120,120))
-btn_guess = Button("TENTAR ADVINHAR", (50, 400, 280, 60), color=(120,180,200))
+        stereo_buf = synth_piano_note(freq, duration)
+        
+        if stereo_buf is not None:
+            snd = pygame.sndarray.make_sound(stereo_buf)
+            channel = snd.play()
+            
+            # Fadeout suave se a nota for longa
+            start_t = time.time()
+            while channel.get_busy() and (time.time() - start_t) < duration:
+                pygame.time.wait(10)
+            
+            if (time.time() - start_t) >= duration:
+                channel.fadeout(50)
+        else:
+            time.sleep(duration)
+            
+    except Exception as e:
+        print(f"Erro audio: {e}")
+        time.sleep(duration)
+    
+    time.sleep(0.05)
+    currently_playing = False
 
 
-# input de texto para palpite
-user_text = ""
-input_active = False
-message = ""
-
-# escolhe uma música aleatória
-def start_round():
-    global current_song_name, current_song_seq, current_index, message, played_notes
-    current_song_name = random_choice_from_dict(SONGS)
-    current_song_seq = SONGS[current_song_name].copy()
-    current_index = 0
-    played_notes = []  # reinicia histórico de notas tocadas
-    message = "Ouça a primeira nota ou tente advinhar a música."
-
-def random_choice_from_dict(d):
-    names = list(d.keys())
-    return names[np.random.randint(0, len(names))]
-
-# --------------------------------------
-# Lógica para liberar próxima nota via solfejo
-# --------------------------------------
-def detector_listen_and_check(target_note):
-    """
-    Grava o áudio do jogador, detecta pitch e retorna o nome detectado e se bate com target_note.
-    Essa função é bloqueante — chamamos em thread para não travar a UI.
-    """
+# ==============================================================================
+# 4. LÓGICA DO DETECTOR
+# ==============================================================================
+def detector_process(target_note_name):
     global message, detected_name, detected_freq, detector_result
+
     detected_name = None
     detected_freq = None
     detector_result = None
 
-    # garantir que não estamos tocando som do jogo (evitar captura de vazamento)
     while currently_playing:
         time.sleep(0.01)
 
-    # grava áudio do microfone (ou loopback se disponível)
-    audio, sr = record_audio()
-    f = detect_pitch_from_audio(audio, sr)
-    detected_freq = f
-    detected_name = freq_to_note_name(f)
-    if is_pitch_match(f, NOTE_FREQS[target_note]):
-        detector_result = True
-        message = f"Acertou! Detectado {detected_name} ({detected_freq:.1f} Hz)."
-    else:
-        detector_result = False
-        if detected_name:
-            message = f"Detectado {detected_name} ({detected_freq:.1f} Hz). Não bate com {target_note}."
+    detector.start()
+    message = "Prepare-se... Cante e SEGURE a nota!"
+    
+    session_start_time = time.time()
+    stable_start_time = None 
+    found_match = False
+    
+    while time.time() - session_start_time < LISTEN_DURATION:
+        note_completa = detector.get_note()
+        freq = detector.get_freq()
+        
+        if note_completa:
+            detected_name = note_completa
+            detected_freq = freq
+            note_only_name = ''.join([c for c in note_completa if not c.isdigit()])
+            
+            if note_only_name == target_note_name:
+                if stable_start_time is None:
+                    stable_start_time = time.time()
+                
+                elapsed = time.time() - stable_start_time
+                message = f"SEGURE! {elapsed:.1f}s / {REQUIRED_STABILITY}s"
+                
+                if elapsed >= REQUIRED_STABILITY:
+                    detector_result = True
+                    message = f"ACERTOU! Nota {detected_name} confirmada."
+                    found_match = True
+                    break 
+            else:
+                stable_start_time = None
+                message = f"Detectado: {detected_name}. Buscando: {target_note_name}"
         else:
-            message = "Não foi possível detectar pitch. Tente novamente."
+            stable_start_time = None
+            message = "Silêncio..."
+        
+        time.sleep(0.05)
 
-# thread wrapper
+    detector.stop()
+
+    if not found_match:
+        detector_result = False
+        message = "Tempo esgotado."
+
 def start_detector_thread(target_note):
-    t = threading.Thread(target=detector_listen_and_check, args=(target_note,), daemon=True)
+    t = threading.Thread(target=detector_process, args=(target_note,), daemon=True)
     t.start()
 
-# --------------------------------------
-# Funções de desenho de telas
-# --------------------------------------
+# ==============================================================================
+# 5. UI E LOOP
+# ==============================================================================
+state = "menu"
+lives = 3
+score = 0
+
+current_song_data = None    
+current_song_seq = []       
+current_index = 0
+
+message = ""
+user_text = ""
+input_active = False
+currently_playing = False
+detected_name = None
+detected_freq = None
+detector_result = None
+
+btn_start = Button("INICIAR", (WIDTH//2 - 140, 180, 280, 60))
+btn_rules = Button("REGRAS", (WIDTH//2 - 140, 260, 280, 60))
+btn_conf = Button("CONFIGURAÇÕES", (WIDTH//2 - 140, 340, 280, 60))
+btn_back = Button("VOLTAR", (20, HEIGHT-70, 120, 50))
+
+btn_repeat = Button("Repetir Notas", (50, 240, 280, 60), color=(120,160,220))
+btn_action_sing = Button("🎤 CANTAR NOTA", (50, 320, 280, 60), color=(255, 140, 100))
+btn_guess = Button("TENTAR ADVINHAR", (50, 400, 280, 60), color=(120,180,200))
+
+btn_play_target = Button("Ouvir Nota Alvo", (WIDTH-220, 120, 180, 50), color=YELLOW)
+btn_start_listen = Button("Gravar (Microfone)", (WIDTH-220, 190, 180, 50), color=GREEN)
+btn_skip_confirm = Button("Confirmar e Voltar", (WIDTH-220, 260, 180, 50), color=ACCENT)
+
+
+def start_round():
+    global current_song_data, current_song_seq, current_index, message, played_notes
+    current_song_data = random.choice(BIBLIOTECA)
+    current_song_seq = current_song_data.notas 
+    current_index = 0
+    played_notes = []
+    message = "Ouça a primeira nota ou tente advinhar a música."
+
 def draw_menu():
     screen.fill(DARK)
     screen.blit(BIG.render("SOLFEJO", True, ACCENT), (WIDTH//2 - 100, 80))
     btn_start.draw(screen)
     btn_rules.draw(screen)
     btn_conf.draw(screen)
-    screen.blit(SMALL.render("Versão educativa - Solfejo", True, WHITE), (WIDTH//2 - 110, 520))
+    screen.blit(SMALL.render("Piano Suave (Anti-Clipping)", True, WHITE), (WIDTH//2 - 130, 520))
 
 def draw_rules():
     screen.fill(DARK)
@@ -388,12 +339,9 @@ def draw_rules():
     screen.blit(BIG.render("REGRAS", True, ACCENT), (40, 20))
     rules = [
         "- Você tem 3 vidas.",
-        "- A cada rodada uma música é escolhida.",
-        "- O jogo toca a primeira nota.",
-        "- Você pode tentar advinhar a música; erro = -1 vida.",
-        "- Ou pressionar SKIP para liberar a próxima nota:",
-        "    para liberar, você precisa cantar a nota atual no detector.",
-        "- Ao ouvir a nota (botão 'Ouvir Nota') o detector fica inativo até a reprodução terminar.",
+        "- Se não souber a próxima nota, clique em CANTAR NOTA.",
+        "- Para desbloquear, CANTE e SEGURE a nota por 1 segundo.",
+        "- Adivinhe a música digitando o nome."
     ]
     for r in rules:
         screen.blit(FONT.render(r, True, WHITE), (40, y))
@@ -403,86 +351,59 @@ def draw_rules():
 def draw_settings():
     screen.fill(DARK)
     screen.blit(BIG.render("CONFIGURAÇÕES", True, ACCENT), (40, 20))
-    screen.blit(FONT.render(f"Tolerância (semitons): {SEMITONE_TOLERANCE}", True, WHITE), (40, 80))
+    screen.blit(FONT.render(f"Offset: +{TUNING_OFFSET} Semitons", True, WHITE), (40, 80))
     btn_back.draw(screen)
 
 def draw_play():
     screen.fill(DARK)
-    # Status
     screen.blit(FONT.render(f"Vidas: {lives}", True, WHITE), (40, 20))
     screen.blit(FONT.render(f"Pontos: {score}", True, WHITE), (200, 20))
-    screen.blit(FONT.render(f"Música: {current_song_name or '---'}", True, WHITE), (40, 60))
-    # Mostra notas liberadas
-    displayed = current_song_seq[:current_index]
+    
+    nome_show = current_song_data.nome if state == 'gameover' else '---'
+    screen.blit(FONT.render(f"Música: {nome_show}", True, WHITE), (40, 60))
+    
+    displayed = [n[0] for n in current_song_seq[:current_index]]
     txt = " ".join(displayed) if displayed else "(nenhuma)"
     screen.blit(FONT.render(f"Notas liberadas: {txt}", True, WHITE), (40, 100))
 
-    # botões principais
     btn_repeat.draw(screen)
-    btn_skip.draw(screen)
+    btn_action_sing.draw(screen)
     btn_guess.draw(screen)
-
-    # texto de mensagem
     screen.blit(SMALL.render(message, True, YELLOW), (40, 480))
 
-    # se houver nota atual, mostra botão de reproduzir
+    global play_here_button
     if current_index < len(current_song_seq):
-        cur_note = current_song_seq[current_index]
-        screen.blit(FONT.render(f"Nota atual: {cur_note}", True, WHITE), (40, 140))
-        # botão para tocar nota: ao tocar, set currently_playing True
+        screen.blit(FONT.render(f"Próxima nota: ???", True, WHITE), (40, 140))
         btn_play_here = Button("Ouvir Nota Atual", (40, 170, 200, 40), color=YELLOW)
         btn_play_here.draw(screen)
-        # salvar para ver clique
-        global play_here_button
         play_here_button = btn_play_here
 
-    # mostra a frequência detectada do buffer sintetizado para depuração
-    if last_buffer_detected_freq:
-        s = FONT.render(f"Buffer freq: {last_buffer_detected_freq:.2f} Hz", True, (200,200,200))
-        screen.blit(s, (260, 170))
-
-    # campo de input para chute
     pygame.draw.rect(screen, (50,50,50), (370, 350, 420, 40), border_radius=6)
-    display_text = user_text if (input_active or user_text) else "Digite o nome da música e pressione TENTAR"
-    screen.blit(FONT.render(display_text, True, WHITE), (380, 358))
+    display_text = user_text if (input_active or user_text) else "Digite o nome da música..."
+    col = WHITE if input_active else (150,150,150)
+    screen.blit(FONT.render(display_text, True, col), (380, 358))
 
 def draw_detector():
     screen.fill(DARK)
     screen.blit(BIG.render("DETECTOR DE PITCH", True, ACCENT), (40, 20))
-    # proteger índice caso o usuário acesse detector sem nota
-    if current_index < len(current_song_seq):
-        screen.blit(FONT.render(f"Nota alvo: {current_song_seq[current_index]}", True, WHITE), (40, 90))
-    else:
-        screen.blit(FONT.render("Nota alvo: ---", True, WHITE), (40, 90))
-
-    # botões do detector
+    target = current_song_seq[current_index][0] if current_index < len(current_song_seq) else "-"
+    screen.blit(FONT.render(f"Cante e SEGURE a nota: {target}", True, WHITE), (40, 90))
     btn_play_target.draw(screen)
     btn_start_listen.draw(screen)
     btn_skip_confirm.draw(screen)
-
-    # exibir leitura detectada
-    det = globals().get('detected_name', None)
-    detf = globals().get('detected_freq', None)
-    if det:
-        screen.blit(FONT.render(f"Detectado: {det} ({detf:.1f} Hz)", True, GREEN), (40, 180))
-
-    # resultado
-    res = globals().get('detector_result', None)
-    if res is True:
-        screen.blit(FONT.render("Detector: ACERTO! Próxima nota liberada.", True, GREEN), (40, 220))
-    elif res is False:
-        screen.blit(FONT.render("Detector: NÃO bate. Tente de novo.", True, RED), (40, 220))
-
+    if detected_name:
+        screen.blit(FONT.render(f"Detectado: {detected_name} ({detected_freq:.1f} Hz)", True, GREEN), (40, 180))
+    msg_color = YELLOW if detector.running else WHITE
+    if detector_result is True: msg_color = GREEN
+    elif detector_result is False: msg_color = RED
+    screen.blit(FONT.render(message, True, msg_color), (40, 230))
     btn_back.draw(screen)
 
-# --------------------------------------
-# Loop principal
-# --------------------------------------
+# ==============================================================================
+# LOOP PRINCIPAL
+# ==============================================================================
 running = True
-start_time = time.time()
-
-# garantir que play_here_button existe
-play_here_button = None
+play_here_button = None 
 
 while running:
     for event in pygame.event.get():
@@ -491,13 +412,12 @@ while running:
 
         if state == 'menu':
             if btn_start.clicked(event):
-                # iniciar rodada
                 lives = 3
                 score = 0
                 start_round()
-                # tocar primeira nota (usa play_note_and_analyze para registrar buffer freq)
-                current = current_song_seq[0]
-                threading.Thread(target=play_note_and_analyze, args=(NOTE_FREQS[current], 0.8), daemon=True).start()
+                if current_song_seq:
+                    primeira_nota = current_song_seq[0]
+                    threading.Thread(target=play_note, args=(NOTE_FREQS[primeira_nota[0]], primeira_nota[1]), daemon=True).start()
                 state = 'play'
             if btn_rules.clicked(event):
                 state = 'rules'
@@ -510,113 +430,97 @@ while running:
 
         elif state == 'play':
             if btn_repeat.clicked(event):
-                # toca todas as notas já tocadas (histórico). Não registra novamente (record=False)
-                def play_released_sequence_from_history():
-                    seq = list(played_notes)  # cópia
-                    for freq in seq:
-                        play_note(freq, 0.6, record=False)
-                        time.sleep(0.05)
-                threading.Thread(target=play_released_sequence_from_history, daemon=True).start()
+                def replay():
+                    seq = list(played_notes)
+                    for freq, dur in seq:
+                        play_note(freq, dur, record=False)
+                threading.Thread(target=replay, daemon=True).start()
 
             if play_here_button and play_here_button.clicked(event):
-                # tocar nota atual (e analisar buffer)
                 if current_index < len(current_song_seq):
-                    cur = current_song_seq[current_index]
-                    threading.Thread(target=play_note_and_analyze, args=(NOTE_FREQS[cur], 0.8), daemon=True).start()
+                    n = current_song_seq[current_index]
+                    threading.Thread(target=play_note, args=(NOTE_FREQS[n[0]], n[1]), daemon=True).start()
 
-            if btn_skip.clicked(event):
-                # abrir detector para liberar próxima nota
+            if btn_action_sing.clicked(event):
                 state = 'detector'
-                # reset detector state
-                globals().pop('detected_name', None)
-                globals().pop('detected_freq', None)
-                globals().pop('detector_result', None)
+                detector_result = None
+                detected_name = None
+                message = "Clique em Gravar e segure a nota por 1s."
 
             if btn_guess.clicked(event):
-                # ativar input
                 input_active = True
+                user_text = ""
 
-            # captura teclado para input se ativo
             if event.type == pygame.KEYDOWN and input_active:
                 if event.key == pygame.K_RETURN:
-                    # avaliar chute
                     guess = user_text.strip().lower()
-                    if guess == (current_song_name or "").lower():
+                    real = (current_song_data.nome or "").lower()
+                    if guess in real and len(guess) > 3:
                         score += 5
-                        message = f"Parabéns! Você acertou: {current_song_name}."
-                        # iniciar nova rodada
+                        message = f"ACERTOU: {current_song_data.nome}!"
                         start_round()
-                        threading.Thread(target=play_note_and_analyze, args=(NOTE_FREQS[current_song_seq[0]], 0.8), daemon=True).start()
-                        input_active = False
-                        user_text = ""
+                        if current_song_seq:
+                            n = current_song_seq[0]
+                            threading.Thread(target=play_note, args=(NOTE_FREQS[n[0]], n[1]), daemon=True).start()
                     else:
                         lives -= 1
-                        message = f"Errado! Você perdeu 1 vida. Vidas restantes: {lives}"
-                        user_text = ""
-                        input_active = False
+                        message = f"Errou! Vidas: {lives}"
                         if lives <= 0:
                             state = 'gameover'
+                    user_text = ""
+                    input_active = False
                 elif event.key == pygame.K_BACKSPACE:
                     user_text = user_text[:-1]
                 else:
-                    # aceitar apenas caracteres
-                    if len(user_text) < 60 and event.unicode.isprintable():
-                        user_text += event.unicode
+                    if len(user_text) < 40: user_text += event.unicode
 
         elif state == 'detector':
             if btn_back.clicked(event):
+                detector.stop()
                 state = 'play'
-            if btn_play_target.clicked(event):
-                # reproduz a nota alvo; durante reprodução detector fica inativo
-                if current_index < len(current_song_seq):
-                    cur = current_song_seq[current_index]
-                    threading.Thread(target=play_note_and_analyze, args=(NOTE_FREQS[cur], 0.8), daemon=True).start()
-            if btn_start_listen.clicked(event):
-                # inicia gravação e detecção em thread
-                if current_index < len(current_song_seq):
-                    target = current_song_seq[current_index]
-                    # start detector thread (bloqueante internamente, mas não bloqueia UI)
-                    start_detector_thread(target)
-            if btn_skip_confirm.clicked(event):
-                # somente libera a próxima nota se detector_result for True
-                if globals().get('detector_result', None) is True:
-                    # libera próxima nota
-                    current_index += 1
-                    message = f"Próxima nota liberada: {current_song_seq[:current_index]}"
-                    globals().pop('detector_result', None)
-                    globals().pop('detected_name', None)
-                    globals().pop('detected_freq', None)
-                    state = 'play'
-                    # tocar as notas liberadas (pequena sequência para feedback) sem duplicar histórico
-                    def play_released_sequence():
-                        # se existem played_notes (notas reais tocadas), prefira reproduzir essas;
-                        # caso contrário, toque a sequência nominal até current_index
-                        if len(played_notes) >= current_index:
-                            seq = played_notes[:current_index]
-                        else:
-                            seq = [NOTE_FREQS[n] for n in current_song_seq[:current_index]]
-                        for freq in seq:
-                            play_note(freq, 0.6, record=False)
-                            time.sleep(0.05)
-                    threading.Thread(target=play_released_sequence, daemon=True).start()
-                else:
-                    message = "Você precisa cantar corretamente antes de liberar."
 
-    # desenha telas
-    if state == 'menu':
-        draw_menu()
-    elif state == 'rules':
-        draw_rules()
-    elif state == 'settings':
-        draw_settings()
-    elif state == 'play':
-        draw_play()
-    elif state == 'detector':
-        draw_detector()
+            if btn_play_target.clicked(event):
+                if current_index < len(current_song_seq):
+                    n = current_song_seq[current_index]
+                    threading.Thread(target=play_note, args=(NOTE_FREQS[n[0]], n[1]), daemon=True).start()
+
+            if btn_start_listen.clicked(event):
+                if current_index < len(current_song_seq):
+                    target_name = current_song_seq[current_index][0]
+                    start_detector_thread(target_name)
+
+            if btn_skip_confirm.clicked(event):
+                if detector_result is True:
+                    current_index += 1
+                    message = "Nota desbloqueada!"
+                    state = 'play'
+                    def play_released():
+                        seq_to_play = []
+                        if len(played_notes) >= current_index:
+                            seq_to_play = played_notes[:current_index]
+                            for freq, dur in seq_to_play:
+                                play_note(freq, dur, record=False)
+                        else:
+                            seq_to_play = current_song_seq[:current_index]
+                            for n in seq_to_play:
+                                play_note(NOTE_FREQS[n[0]], n[1], record=False)
+                    threading.Thread(target=play_released, daemon=True).start()
+                else:
+                    message = "Segure a nota por 1s até aparecer ACERTOU."
+
+        elif state == 'gameover':
+            if btn_back.clicked(event):
+                state = 'menu'
+
+    if state == 'menu': draw_menu()
+    elif state == 'rules': draw_rules()
+    elif state == 'settings': draw_settings()
+    elif state == 'play': draw_play()
+    elif state == 'detector': draw_detector()
     elif state == 'gameover':
         screen.fill(DARK)
-        screen.blit(BIG.render("GAME OVER", True, RED), (WIDTH//2 - 120, HEIGHT//2 - 60))
-        screen.blit(FONT.render(f"Pontos: {score}", True, WHITE), (WIDTH//2 - 40, HEIGHT//2))
+        screen.blit(BIG.render("FIM DE JOGO", True, RED), (WIDTH//2 - 100, HEIGHT//2 - 50))
+        screen.blit(FONT.render(f"Pontuação: {score}", True, WHITE), (WIDTH//2 - 60, HEIGHT//2))
         btn_back.draw(screen)
 
     pygame.display.flip()
