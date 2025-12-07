@@ -100,21 +100,45 @@ detector = PitchDetector()
 pygame.mixer.pre_init(frequency=SAMPLE_RATE, size=-16, channels=2, buffer=4096)
 pygame.init()
 
-WIDTH, HEIGHT = 900, 600
+WIDTH, HEIGHT = 1000, 700
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Solfejo - Piano Suave")
+pygame.display.set_caption("Solfejo - Jogo Musical Interativo")
 
 # Cores
+BG_DARK = (15, 23, 42)
+BG_CARD = (30, 41, 59)
+BG_SURFACE = (51, 65, 85)
 WHITE = (255, 255, 255)
-DARK = (30, 30, 30)
-ACCENT = (70, 140, 255)
-GREEN = (100, 220, 100)
-RED = (255, 90, 90)
-YELLOW = (255, 220, 80)
+TEXT_PRIMARY = (248, 250, 252)
+TEXT_SECONDARY = (148, 163, 184)
 
-FONT = pygame.font.SysFont("arial", 24)
-BIG = pygame.font.SysFont("arial", 34)
-SMALL = pygame.font.SysFont("arial", 18)
+# Cores de Ação
+ACCENT = (79, 70, 229)
+ACCENT_HOVER = (109, 100, 255)
+ACCENT_DARK = (67, 56, 202)
+
+SUCCESS = (16, 185, 129)
+SUCCESS_HOVER = (52, 211, 153)
+WARNING = (245, 158, 11)
+WARNING_HOVER = (251, 191, 36)
+DANGER = (220, 38, 38)
+DANGER_HOVER = (239, 68, 68)
+
+# Cores Neutras
+GRAY_50 = (250, 250, 250)
+GRAY_100 = (244, 244, 245)
+GRAY_200 = (228, 228, 231)
+GRAY_600 = (82, 82, 91)
+GRAY_700 = (63, 63, 70)
+GRAY_800 = (39, 39, 42)
+
+# Tipografia Aprimorada
+FONT_TITLE = pygame.font.SysFont("Arial", 56, bold=True)
+FONT_SUBTITLE = pygame.font.SysFont("Arial", 32, bold=True)
+FONT_HEADING = pygame.font.SysFont("Arial", 28, bold=True)
+FONT = pygame.font.SysFont("Arial", 22)
+FONT_SMALL = pygame.font.SysFont("Arial", 18)
+FONT_TINY = pygame.font.SysFont("Arial", 14)
 CLOCK = pygame.time.Clock()
 
 # Tabela de Frequências Base
@@ -129,26 +153,127 @@ for i, nome in enumerate(NOTAS):
 # 3. SINTETIZADOR DE PIANO CORRIGIDO (LIMITER + VOLUME BAIXO)
 # ==============================================================================
 class Button:
-    def __init__(self, text, rect, color=ACCENT, hover=None):
+    def __init__(self, text, rect, color=ACCENT, hover=None, icon=None, font=None):
         self.text = text
         self.rect = pygame.Rect(rect)
         self.color = color
-        self.hover = hover or tuple(min(255, c+30) for c in color)
+        self.hover = hover or ACCENT_HOVER if color == ACCENT else tuple(min(255, c+20) for c in color)
+        self.icon = icon
+        self.font = font or FONT
+        self.pressed = False
 
     def draw(self, surf):
         m = pygame.mouse.get_pos()
         is_hover = self.rect.collidepoint(m)
+        is_pressed = is_hover and pygame.mouse.get_pressed()[0]
+
+        # Offset para efeito de press
+        offset = 2 if is_pressed else 0
+        draw_rect = self.rect.copy()
+        draw_rect.y += offset
+
+        # Sombra melhorada (apenas se não pressionado)
+        if not is_pressed:
+            shadow_rect = draw_rect.copy()
+            shadow_rect.y += 5
+            shadow_rect.x += 2
+            shadow_surf = pygame.Surface((shadow_rect.w, shadow_rect.h), pygame.SRCALPHA)
+            pygame.draw.rect(shadow_surf, (0, 0, 0, 60), shadow_surf.get_rect(), border_radius=12)
+            surf.blit(shadow_surf, shadow_rect.topleft)
+
+        # Fundo do botão
         col = self.hover if is_hover else self.color
-        pygame.draw.rect(surf, col, self.rect, border_radius=8)
-        s = FONT.render(self.text, True, WHITE)
-        surf.blit(s, (self.rect.x + (self.rect.w - s.get_width())//2,
-                      self.rect.y + (self.rect.h - s.get_height())//2))
+        pygame.draw.rect(surf, col, draw_rect, border_radius=12)
+
+        # Borda sutil para destaque
+        border_color = tuple(min(255, c + 20) for c in col)
+        pygame.draw.rect(surf, border_color, draw_rect, width=1, border_radius=12)
+
+        if is_hover:
+            pygame.draw.rect(surf, tuple(min(255, c+30) for c in col), draw_rect, width=2, border_radius=12)
+
+        # Texto com ícone (se houver)
+        text_surf = self.font.render(self.text, True, WHITE)
+        if self.icon:
+            icon_surf = FONT_HEADING.render(self.icon, True, WHITE)
+            total_width = icon_surf.get_width() + 10 + text_surf.get_width()
+            start_x = draw_rect.x + (draw_rect.w - total_width) // 2
+            surf.blit(icon_surf, (start_x, draw_rect.y + (draw_rect.h - icon_surf.get_height()) // 2))
+            surf.blit(text_surf, (start_x + icon_surf.get_width() + 10,
+                                 draw_rect.y + (draw_rect.h - text_surf.get_height()) // 2))
+        else:
+            surf.blit(text_surf, (draw_rect.x + (draw_rect.w - text_surf.get_width()) // 2,
+                                 draw_rect.y + (draw_rect.h - text_surf.get_height()) // 2))
 
     def clicked(self, event):
         return event.type == pygame.MOUSEBUTTONDOWN and self.rect.collidepoint(event.pos)
 
-played_notes = [] 
+played_notes = []
 currently_playing = False
+
+# Função helper para desenhar cards com sombra
+def draw_card(surf, rect, color=BG_CARD, border_radius=16, shadow=True):
+    """Desenha um card com sombra e bordas arredondadas"""
+    rect = pygame.Rect(rect)
+
+    if shadow:
+        # Sombra mais suave e escura
+        shadow_rect = rect.copy()
+        shadow_rect.y += 4
+        shadow_rect.x += 2
+        shadow_surf = pygame.Surface((shadow_rect.w, shadow_rect.h), pygame.SRCALPHA)
+        pygame.draw.rect(shadow_surf, (0, 0, 0, 80), shadow_surf.get_rect(), border_radius=border_radius)
+        surf.blit(shadow_surf, shadow_rect.topleft)
+
+    # Desenha o card
+    pygame.draw.rect(surf, color, rect, border_radius=border_radius)
+
+    # Adiciona borda sutil para definição
+    border_color = tuple(min(255, c + 15) for c in color)
+    pygame.draw.rect(surf, border_color, rect, width=1, border_radius=border_radius)
+
+    return rect
+
+# Função para desenhar texto com sombra
+def draw_text_with_shadow(surf, text, font, color, pos, shadow_offset=2):
+    """Desenha texto com sombra para melhor legibilidade"""
+    shadow = font.render(text, True, (0, 0, 0))
+    text_surf = font.render(text, True, color)
+    surf.blit(shadow, (pos[0] + shadow_offset, pos[1] + shadow_offset))
+    surf.blit(text_surf, pos)
+
+# Função para desenhar badge (vidas, pontos)
+def draw_badge(surf, text, rect, color=ACCENT, icon=None):
+    """Desenha um badge estilizado"""
+    rect = pygame.Rect(rect)
+
+    # Sombra do badge
+    shadow_rect = rect.copy()
+    shadow_rect.y += 3
+    shadow_rect.x += 1
+    shadow_surf = pygame.Surface((shadow_rect.w, shadow_rect.h), pygame.SRCALPHA)
+    pygame.draw.rect(shadow_surf, (0, 0, 0, 70), shadow_surf.get_rect(), border_radius=25)
+    surf.blit(shadow_surf, shadow_rect.topleft)
+
+    # Fundo do badge
+    pygame.draw.rect(surf, color, rect, border_radius=25)
+
+    # Borda para definição
+    border_color = tuple(min(255, c + 30) for c in color)
+    pygame.draw.rect(surf, border_color, rect, width=1, border_radius=25)
+
+    if icon:
+        icon_surf = FONT_HEADING.render(icon, True, WHITE)
+        text_surf = FONT_SMALL.render(text, True, WHITE)
+        total_width = icon_surf.get_width() + 8 + text_surf.get_width()
+        start_x = rect.x + (rect.w - total_width) // 2
+        surf.blit(icon_surf, (start_x, rect.y + (rect.h - icon_surf.get_height()) // 2))
+        surf.blit(text_surf, (start_x + icon_surf.get_width() + 8,
+                             rect.y + (rect.h - text_surf.get_height()) // 2))
+    else:
+        text_surf = FONT_SMALL.render(text, True, WHITE)
+        surf.blit(text_surf, (rect.x + (rect.w - text_surf.get_width()) // 2,
+                             rect.y + (rect.h - text_surf.get_height()) // 2))
 
 def synth_piano_note(base_freq, duration=1.0, volume=0.3): # Volume padrão reduzido para 0.3
     """
@@ -303,18 +428,19 @@ detected_name = None
 detected_freq = None
 detector_result = None
 
-btn_start = Button("INICIAR", (WIDTH//2 - 140, 180, 280, 60))
-btn_rules = Button("REGRAS", (WIDTH//2 - 140, 260, 280, 60))
-btn_conf = Button("CONFIGURAÇÕES", (WIDTH//2 - 140, 340, 280, 60))
-btn_back = Button("VOLTAR", (20, HEIGHT-70, 120, 50))
+btn_start = Button("INICIAR", (WIDTH//2 - 160, 220, 320, 70), color=ACCENT, font=FONT_HEADING)
+btn_rules = Button("REGRAS", (WIDTH//2 - 160, 310, 320, 60), color=BG_SURFACE, font=FONT)
+btn_conf = Button("CONFIGURAÇÕES", (WIDTH//2 - 160, 390, 320, 60), color=BG_SURFACE, font=FONT)
+btn_back = Button("VOLTAR", (30, HEIGHT-80, 140, 50), color=GRAY_700, font=FONT_SMALL)
+btn_menu = Button("MENU", (WIDTH-180, HEIGHT-80, 150, 50), color=DANGER, hover=DANGER_HOVER, font=FONT_SMALL)
 
-btn_repeat = Button("Repetir Notas", (50, 240, 280, 60), color=(120,160,220))
-btn_action_sing = Button("🎤 CANTAR NOTA", (50, 320, 280, 60), color=(255, 140, 100))
-btn_guess = Button("TENTAR ADVINHAR", (50, 400, 280, 60), color=(120,180,200))
+btn_repeat = Button("Repetir Notas", (60, 280, 300, 60), color=BG_SURFACE)
+btn_action_sing = Button("CANTAR NOTA", (60, 360, 300, 60), color=WARNING)
+btn_guess = Button("ADVINHAR MÚSICA", (60, 440, 300, 60), color=ACCENT)
 
-btn_play_target = Button("Ouvir Nota Alvo", (WIDTH-220, 120, 180, 50), color=YELLOW)
-btn_start_listen = Button("Gravar (Microfone)", (WIDTH-220, 190, 180, 50), color=GREEN)
-btn_skip_confirm = Button("Confirmar e Voltar", (WIDTH-220, 260, 180, 50), color=ACCENT)
+btn_play_target = Button("Ouvir Nota Alvo", (WIDTH-280, 140, 240, 55), color=WARNING)
+btn_start_listen = Button("Gravar (Mic)", (WIDTH-280, 215, 240, 55), color=SUCCESS)
+btn_skip_confirm = Button("Confirmar", (WIDTH-280, 290, 240, 55), color=ACCENT)
 
 
 def start_round():
@@ -326,77 +452,227 @@ def start_round():
     message = "Ouça a primeira nota ou tente advinhar a música."
 
 def draw_menu():
-    screen.fill(DARK)
-    screen.blit(BIG.render("SOLFEJO", True, ACCENT), (WIDTH//2 - 100, 80))
+    screen.fill(BG_DARK)
+
+    # Título com efeito de gradiente simulado
+    title = "SOLFEJO"
+    draw_text_with_shadow(screen, title, FONT_TITLE, ACCENT, (WIDTH//2 - 200, 60), shadow_offset=4)
+
+    # Subtítulo
+    subtitle = "Aprenda música de forma divertida"
+    subtitle_surf = FONT_SMALL.render(subtitle, True, TEXT_SECONDARY)
+    screen.blit(subtitle_surf, (WIDTH//2 - subtitle_surf.get_width()//2, 130))
+
+    # Desenha os botões
     btn_start.draw(screen)
     btn_rules.draw(screen)
     btn_conf.draw(screen)
-    screen.blit(SMALL.render("Piano Suave (Anti-Clipping)", True, WHITE), (WIDTH//2 - 130, 520))
+
+    # Footer com informações
+    footer_text = "Piano Suave (Anti-Clipping) | v2.0"
+    footer_surf = FONT_TINY.render(footer_text, True, TEXT_SECONDARY)
+    screen.blit(footer_surf, (WIDTH//2 - footer_surf.get_width()//2, HEIGHT - 40))
 
 def draw_rules():
-    screen.fill(DARK)
-    y = 60
-    screen.blit(BIG.render("REGRAS", True, ACCENT), (40, 20))
+    screen.fill(BG_DARK)
+
+    # Título
+    draw_text_with_shadow(screen, "REGRAS DO JOGO", FONT_SUBTITLE, ACCENT, (50, 30), shadow_offset=3)
+
+    # Card com regras
+    card_rect = draw_card(screen, (50, 100, WIDTH-100, 450), BG_CARD)
+
     rules = [
-        "- Você tem 3 vidas.",
-        "- Se não souber a próxima nota, clique em CANTAR NOTA.",
-        "- Para desbloquear, CANTE e SEGURE a nota por 1 segundo.",
-        "- Adivinhe a música digitando o nome."
+        ("1.", "Você começa com 3 vidas", "Não desperdice tentando adivinhar sem certeza!"),
+        ("2.", "Ouça as notas reveladas", "Clique em 'Repetir Notas' para ouvir novamente."),
+        ("3.", "Cante a próxima nota", "SEGURE a nota por 1 segundo para desbloquear."),
+        ("4.", "Adivinhe a música", "Digite o nome quando achar que sabe qual é!")
     ]
-    for r in rules:
-        screen.blit(FONT.render(r, True, WHITE), (40, y))
-        y += 34
+
+    y = card_rect.y + 30
+    for icon, title, desc in rules:
+        # Ícone
+        icon_surf = FONT_HEADING.render(icon, True, ACCENT)
+        screen.blit(icon_surf, (card_rect.x + 30, y))
+
+        # Título
+        title_surf = FONT.render(title, True, TEXT_PRIMARY)
+        screen.blit(title_surf, (card_rect.x + 80, y + 2))
+
+        # Descrição
+        desc_surf = FONT_SMALL.render(desc, True, TEXT_SECONDARY)
+        screen.blit(desc_surf, (card_rect.x + 80, y + 32))
+
+        y += 90
+
     btn_back.draw(screen)
 
 def draw_settings():
-    screen.fill(DARK)
-    screen.blit(BIG.render("CONFIGURAÇÕES", True, ACCENT), (40, 20))
-    screen.blit(FONT.render(f"Offset: +{TUNING_OFFSET} Semitons", True, WHITE), (40, 80))
+    screen.fill(BG_DARK)
+
+    # Título
+    draw_text_with_shadow(screen, "CONFIGURAÇÕES", FONT_SUBTITLE, ACCENT, (50, 30), shadow_offset=3)
+
+    # Card de configurações
+    card_rect = draw_card(screen, (50, 100, WIDTH-100, 400), BG_CARD)
+
+    # Afinação
+    y = card_rect.y + 40
+    label_surf = FONT.render("Afinação", True, TEXT_PRIMARY)
+    screen.blit(label_surf, (card_rect.x + 40, y))
+
+    value_text = f"+{TUNING_OFFSET} semitons"
+    value_surf = FONT_HEADING.render(value_text, True, ACCENT)
+    screen.blit(value_surf, (card_rect.x + 40, y + 40))
+
+    desc_surf = FONT_SMALL.render("Ajuste fino da afinação base (A4 = 440Hz)", True, TEXT_SECONDARY)
+    screen.blit(desc_surf, (card_rect.x + 40, y + 85))
+
+    # Informações adicionais
+    y += 160
+    pygame.draw.line(screen, GRAY_700, (card_rect.x + 40, y), (card_rect.right - 40, y), 1)
+
+    y += 30
+    info_items = [
+        ("Taxa de Amostragem:", f"{SAMPLE_RATE} Hz"),
+        ("Duração de Escuta:", f"{LISTEN_DURATION} segundos"),
+        ("Estabilidade Requerida:", f"{REQUIRED_STABILITY} segundo")
+    ]
+
+    for label, value in info_items:
+        label_surf = FONT_SMALL.render(label, True, TEXT_SECONDARY)
+        value_surf = FONT_SMALL.render(value, True, TEXT_PRIMARY)
+        screen.blit(label_surf, (card_rect.x + 40, y))
+        screen.blit(value_surf, (card_rect.x + 350, y))
+        y += 35
+
     btn_back.draw(screen)
 
 def draw_play():
-    screen.fill(DARK)
-    screen.blit(FONT.render(f"Vidas: {lives}", True, WHITE), (40, 20))
-    screen.blit(FONT.render(f"Pontos: {score}", True, WHITE), (200, 20))
-    
-    nome_show = current_song_data.nome if state == 'gameover' else '---'
-    screen.blit(FONT.render(f"Música: {nome_show}", True, WHITE), (40, 60))
-    
+    screen.fill(BG_DARK)
+
+    # Header com badges de status
+    header_y = 25
+    draw_badge(screen, f"Vidas: {lives}", (50, header_y, 140, 50), DANGER)
+    draw_badge(screen, f"Pontos: {score}", (210, header_y, 140, 50), ACCENT)
+
+    # Card principal de informações
+    card_main = draw_card(screen, (50, 100, WIDTH-100, 150), BG_CARD)
+
+    # Música (oculta ou revelada)
+    nome_show = current_song_data.nome if state == 'gameover' else '???'
+    music_label = FONT_SMALL.render("Música:", True, TEXT_SECONDARY)
+    music_name = FONT_HEADING.render(nome_show, True, ACCENT)
+    screen.blit(music_label, (card_main.x + 30, card_main.y + 25))
+    screen.blit(music_name, (card_main.x + 30, card_main.y + 50))
+
+    # Notas liberadas
     displayed = [n[0] for n in current_song_seq[:current_index]]
-    txt = " ".join(displayed) if displayed else "(nenhuma)"
-    screen.blit(FONT.render(f"Notas liberadas: {txt}", True, WHITE), (40, 100))
+    txt = " • ".join(displayed) if displayed else "Nenhuma nota revelada ainda"
+    notes_label = FONT_SMALL.render("Notas reveladas:", True, TEXT_SECONDARY)
+    notes_text = FONT.render(txt, True, TEXT_PRIMARY)
+    screen.blit(notes_label, (card_main.x + 30, card_main.y + 95))
+    screen.blit(notes_text, (card_main.x + 30, card_main.y + 120))
 
-    btn_repeat.draw(screen)
-    btn_action_sing.draw(screen)
-    btn_guess.draw(screen)
-    screen.blit(SMALL.render(message, True, YELLOW), (40, 480))
-
+    # Próxima nota (se houver)
     global play_here_button
     if current_index < len(current_song_seq):
-        screen.blit(FONT.render(f"Próxima nota: ???", True, WHITE), (40, 140))
-        btn_play_here = Button("Ouvir Nota Atual", (40, 170, 200, 40), color=YELLOW)
+        card_next = draw_card(screen, (400, 100, 550, 150), BG_SURFACE)
+        next_label = FONT_SMALL.render("Próxima Nota:", True, TEXT_SECONDARY)
+        next_value = FONT_TITLE.render("?", True, WARNING)
+        screen.blit(next_label, (card_next.x + 30, card_next.y + 25))
+        screen.blit(next_value, (card_next.x + 30, card_next.y + 50))
+
+        btn_play_here = Button("Ouvir", (card_next.x + 200, card_next.y + 60, 150, 50), color=WARNING, font=FONT_SMALL)
         btn_play_here.draw(screen)
         play_here_button = btn_play_here
 
-    pygame.draw.rect(screen, (50,50,50), (370, 350, 420, 40), border_radius=6)
-    display_text = user_text if (input_active or user_text) else "Digite o nome da música..."
-    col = WHITE if input_active else (150,150,150)
-    screen.blit(FONT.render(display_text, True, col), (380, 358))
+    # Botões de ação
+    btn_repeat.draw(screen)
+    btn_action_sing.draw(screen)
+    btn_guess.draw(screen)
+
+    # Campo de input melhorado
+    input_y = 540
+    input_label = FONT_SMALL.render("Adivinhe a música:", True, TEXT_SECONDARY)
+    screen.blit(input_label, (400, input_y - 25))
+
+    input_rect = draw_card(screen, (400, input_y, 540, 55), BG_SURFACE, border_radius=12)
+    if input_active:
+        pygame.draw.rect(screen, ACCENT, input_rect, width=2, border_radius=12)
+
+    display_text = user_text if (input_active or user_text) else "Digite aqui..."
+    col = TEXT_PRIMARY if input_active else TEXT_SECONDARY
+    text_surf = FONT.render(display_text, True, col)
+    screen.blit(text_surf, (input_rect.x + 20, input_rect.y + 15))
+
+    # Mensagem de feedback
+    if message:
+        msg_color = WARNING if "tempo" in message.lower() else SUCCESS if "acertou" in message.lower() else TEXT_PRIMARY
+        msg_surf = FONT_SMALL.render(message, True, msg_color)
+        screen.blit(msg_surf, (50, HEIGHT - 50))
+
+    # Botão para retornar ao menu
+    btn_menu.draw(screen)
 
 def draw_detector():
-    screen.fill(DARK)
-    screen.blit(BIG.render("DETECTOR DE PITCH", True, ACCENT), (40, 20))
+    screen.fill(BG_DARK)
+
+    # Título
+    draw_text_with_shadow(screen, "DETECTOR DE PITCH", FONT_SUBTITLE, ACCENT, (50, 30), shadow_offset=3)
+
+    # Card principal - Nota alvo
     target = current_song_seq[current_index][0] if current_index < len(current_song_seq) else "-"
-    screen.blit(FONT.render(f"Cante e SEGURE a nota: {target}", True, WHITE), (40, 90))
+    card_target = draw_card(screen, (50, 100, WIDTH-350, 200), BG_CARD)
+
+    target_label = FONT_SMALL.render("Cante e SEGURE esta nota:", True, TEXT_SECONDARY)
+    screen.blit(target_label, (card_target.x + 30, card_target.y + 25))
+
+    target_surf = FONT_TITLE.render(target, True, WARNING)
+    screen.blit(target_surf, (card_target.x + 30, card_target.y + 60))
+
+    instruction = FONT_TINY.render("Mantenha a nota estável por 1 segundo", True, TEXT_SECONDARY)
+    screen.blit(instruction, (card_target.x + 30, card_target.y + 160))
+
+    # Card de detecção
+    card_detect = draw_card(screen, (50, 320, WIDTH-350, 250), BG_SURFACE)
+
+    detect_label = FONT_SMALL.render("Detecção em tempo real:", True, TEXT_SECONDARY)
+    screen.blit(detect_label, (card_detect.x + 30, card_detect.y + 25))
+
+    if detected_name:
+        # Nota detectada
+        detected_surf = FONT_HEADING.render(detected_name, True, SUCCESS)
+        freq_surf = FONT_SMALL.render(f"{detected_freq:.1f} Hz", True, TEXT_SECONDARY)
+        screen.blit(detected_surf, (card_detect.x + 30, card_detect.y + 60))
+        screen.blit(freq_surf, (card_detect.x + 30, card_detect.y + 100))
+
+        # Indicador visual de correspondência
+        note_only = ''.join([c for c in detected_name if not c.isdigit()])
+        if note_only == target:
+            match_indicator = FONT.render("Nota Correta!", True, SUCCESS)
+            pygame.draw.rect(screen, SUCCESS, (card_detect.x + 30, card_detect.y + 140, 300, 8), border_radius=4)
+        else:
+            match_indicator = FONT.render("Continue tentando...", True, WARNING)
+            pygame.draw.rect(screen, WARNING, (card_detect.x + 30, card_detect.y + 140, 300, 8), border_radius=4)
+        screen.blit(match_indicator, (card_detect.x + 30, card_detect.y + 165))
+    else:
+        no_detect = FONT.render("Aguardando entrada...", True, TEXT_SECONDARY)
+        screen.blit(no_detect, (card_detect.x + 30, card_detect.y + 60))
+
+    # Mensagem de status
+    msg_y = card_detect.y + 210
+    msg_color = WARNING if detector.running else TEXT_SECONDARY
+    if detector_result is True: msg_color = SUCCESS
+    elif detector_result is False: msg_color = DANGER
+    msg_surf = FONT_SMALL.render(message, True, msg_color)
+    screen.blit(msg_surf, (card_detect.x + 30, msg_y))
+
+    # Botões de controle (lado direito)
     btn_play_target.draw(screen)
     btn_start_listen.draw(screen)
     btn_skip_confirm.draw(screen)
-    if detected_name:
-        screen.blit(FONT.render(f"Detectado: {detected_name} ({detected_freq:.1f} Hz)", True, GREEN), (40, 180))
-    msg_color = YELLOW if detector.running else WHITE
-    if detector_result is True: msg_color = GREEN
-    elif detector_result is False: msg_color = RED
-    screen.blit(FONT.render(message, True, msg_color), (40, 230))
+
     btn_back.draw(screen)
 
 # ==============================================================================
@@ -429,6 +705,13 @@ while running:
                 state = 'menu'
 
         elif state == 'play':
+            if btn_menu.clicked(event):
+                detector.stop()
+                input_active = False
+                user_text = ""
+                message = ""
+                state = 'menu'
+
             if btn_repeat.clicked(event):
                 def replay():
                     seq = list(played_notes)
@@ -518,9 +801,29 @@ while running:
     elif state == 'play': draw_play()
     elif state == 'detector': draw_detector()
     elif state == 'gameover':
-        screen.fill(DARK)
-        screen.blit(BIG.render("FIM DE JOGO", True, RED), (WIDTH//2 - 100, HEIGHT//2 - 50))
-        screen.blit(FONT.render(f"Pontuação: {score}", True, WHITE), (WIDTH//2 - 60, HEIGHT//2))
+        screen.fill(BG_DARK)
+
+        # Card central de game over
+        card = draw_card(screen, (WIDTH//2 - 300, HEIGHT//2 - 200, 600, 400), BG_CARD)
+
+        # Título
+        title_surf = FONT_TITLE.render("FIM DE JOGO", True, DANGER)
+        screen.blit(title_surf, (WIDTH//2 - title_surf.get_width()//2, card.y + 50))
+
+        # Pontuação com destaque
+        score_label = FONT_SMALL.render("Pontuação Final", True, TEXT_SECONDARY)
+        screen.blit(score_label, (WIDTH//2 - score_label.get_width()//2, card.y + 140))
+
+        score_surf = FONT_TITLE.render(f"{score}", True, ACCENT)
+        screen.blit(score_surf, (WIDTH//2 - score_surf.get_width()//2, card.y + 170))
+
+        # Música revelada
+        music_name = current_song_data.nome if current_song_data else "Desconhecida"
+        music_label = FONT_SMALL.render("A música era:", True, TEXT_SECONDARY)
+        music_surf = FONT_HEADING.render(music_name, True, WARNING)
+        screen.blit(music_label, (WIDTH//2 - music_label.get_width()//2, card.y + 250))
+        screen.blit(music_surf, (WIDTH//2 - music_surf.get_width()//2, card.y + 280))
+
         btn_back.draw(screen)
 
     pygame.display.flip()
