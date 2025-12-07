@@ -1,0 +1,7 @@
+# Jogo Solfejo - Dependências
+# Instalação: pip install -r requirements.txt
+
+pygame==2.6.1
+numpy==2.2.1
+pyaudio==0.2.14
+aubio==0.4.9  # Requer Microsoft C++ Build Tools no Windows
