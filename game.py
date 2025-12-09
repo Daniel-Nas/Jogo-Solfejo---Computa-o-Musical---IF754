@@ -553,11 +553,12 @@ btn_skip_confirm = Button("Confirmar", (WIDTH-280, 290, 240, 55), color=ACCENT)
 
 
 def start_round():
-    global current_song_data, current_song_seq, current_index, message, played_notes
+    global current_song_data, current_song_seq, current_index, message, played_notes, played_past_notes
     current_song_data = random.choice(BIBLIOTECA)
     current_song_seq = current_song_data.notas 
     current_index = 0
     played_notes = []
+    played_past_notes = []
     message = "Ouça a primeira nota ou tente advinhar a música."
 
 def draw_note_symbol(surf, x, y, size=30, color=(255, 255, 255)):
@@ -963,6 +964,7 @@ while running:
             if btn_repeat.clicked(event):
                 def replay():
                     seq = list(played_past_notes)
+                    print("Replaying past notes:", seq)
                     for freq, dur in seq:
                         play_note(freq, dur, record=False)
                 threading.Thread(target=replay, daemon=True).start()
