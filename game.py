@@ -1045,7 +1045,7 @@ while running:
                         seq_to_play = []
                         if len(played_notes) >= current_index:
                             seq_to_play = played_notes[:current_index]
-                            played_past_notes.append(played_notes[current_index-1])
+                            played_past_notes.append(current_song_seq[current_index-1])
                             for freq, dur in seq_to_play:
                                 play_note(freq, dur, record=False)
                         else:
