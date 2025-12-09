@@ -10,6 +10,7 @@ from utils import calculate_similarity, is_similar_enough
 
 # IMPORTAÇÃO DA NOVA ESTRUTURA
 from Musicas import BIBLIOTECA, Musica
+button_cooldown_until = 0
 
 # ==============================================================================
 # CONFIGURAÇÕES GERAIS
@@ -210,6 +211,7 @@ class Button:
         return event.type == pygame.MOUSEBUTTONDOWN and self.rect.collidepoint(event.pos)
 
 played_notes = []
+played_past_notes = []
 currently_playing = False
 
 # Função helper para desenhar cards com sombra
@@ -669,6 +671,13 @@ def draw_detector():
     msg_surf = FONT_SMALL.render(message, True, msg_color)
     screen.blit(msg_surf, (card_detect.x + 30, msg_y))
 
+    cooldown_active = time.time() < button_cooldown_until
+    if cooldown_active:
+        btn_start_listen.color = (150, 150, 150)   # CINZA = desabilitado
+    else:
+        btn_start_listen.color = (0, 200, 0)       # VERDE = ativo
+
+
     # Botões de controle (lado direito)
     btn_play_target.draw(screen)
     btn_start_listen.draw(screen)
@@ -715,10 +724,11 @@ while running:
 
             if btn_repeat.clicked(event):
                 def replay():
-                    seq = list(played_notes)
+                    seq = list(played_past_notes)
                     for freq, dur in seq:
                         play_note(freq, dur, record=False)
                 threading.Thread(target=replay, daemon=True).start()
+
 
             if play_here_button and play_here_button.clicked(event):
                 if current_index < len(current_song_seq):
@@ -757,7 +767,7 @@ while running:
                     else:
                         lives -= 1
                         similarity = calculate_similarity(guess, real)
-                        message = f"✗ Errou! Era '{current_song_data.nome}'. Vidas: {lives}"
+                        message = f"✗ Errou! Vidas: {lives}"
                         if lives <= 0:
                             state = 'gameover'
                     user_text = ""
@@ -777,10 +787,14 @@ while running:
                     n = current_song_seq[current_index]
                     threading.Thread(target=play_note, args=(NOTE_FREQS[n[0]], n[1]), daemon=True).start()
 
-            if btn_start_listen.clicked(event):
+            cooldown_active = time.time() < button_cooldown_until
+
+            if not cooldown_active and btn_start_listen.clicked(event):
                 if current_index < len(current_song_seq):
                     target_name = current_song_seq[current_index][0]
                     start_detector_thread(target_name)
+
+                button_cooldown_until = time.time() + 10
 
             if btn_skip_confirm.clicked(event):
                 if detector_result is True:
@@ -791,6 +805,7 @@ while running:
                         seq_to_play = []
                         if len(played_notes) >= current_index:
                             seq_to_play = played_notes[:current_index]
+                            played_past_notes.append(played_notes[current_index-1])
                             for freq, dur in seq_to_play:
                                 play_note(freq, dur, record=False)
                         else:
