@@ -105,41 +105,91 @@ WIDTH, HEIGHT = 1000, 700
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Solfejo - Jogo Musical Interativo")
 
-# Cores
-BG_DARK = (15, 23, 42)
-BG_CARD = (30, 41, 59)
-BG_SURFACE = (51, 65, 85)
+# Cores - Tema Gradiente Roxo-Azul
+BG_DARK = (20, 15, 35)  # Roxo escuro base
+BG_CARD = (45, 35, 70)  # Roxo médio
+BG_SURFACE = (60, 50, 90)  # Roxo claro
 WHITE = (255, 255, 255)
 TEXT_PRIMARY = (248, 250, 252)
-TEXT_SECONDARY = (148, 163, 184)
+TEXT_SECONDARY = (180, 170, 220)
 
-# Cores de Ação
-ACCENT = (79, 70, 229)
-ACCENT_HOVER = (109, 100, 255)
-ACCENT_DARK = (67, 56, 202)
+# Cores de Ação - Gradiente Roxo-Azul
+ACCENT = (120, 80, 200)  # Roxo vibrante
+ACCENT_HOVER = (140, 100, 240)  # Roxo claro
+ACCENT_DARK = (100, 60, 180)  # Roxo escuro
 
-SUCCESS = (16, 185, 129)
-SUCCESS_HOVER = (52, 211, 153)
-WARNING = (245, 158, 11)
-WARNING_HOVER = (251, 191, 36)
-DANGER = (220, 38, 38)
-DANGER_HOVER = (239, 68, 68)
+SUCCESS = (80, 200, 180)  # Azul-verde
+SUCCESS_HOVER = (100, 220, 200)
+WARNING = (255, 180, 100)  # Laranja dourado
+WARNING_HOVER = (255, 200, 120)
+DANGER = (240, 80, 120)  # Rosa-vermelho
+DANGER_HOVER = (255, 100, 140)
 
-# Cores Neutras
+# Cores Neutras - Ajustadas para tema roxo-azul
 GRAY_50 = (250, 250, 250)
 GRAY_100 = (244, 244, 245)
 GRAY_200 = (228, 228, 231)
-GRAY_600 = (82, 82, 91)
-GRAY_700 = (63, 63, 70)
-GRAY_800 = (39, 39, 42)
+GRAY_600 = (100, 90, 130)  # Roxo acinzentado
+GRAY_700 = (80, 70, 110)   # Roxo escuro
+GRAY_800 = (50, 40, 70)    # Roxo muito escuro
 
-# Tipografia Aprimorada
-FONT_TITLE = pygame.font.SysFont("Arial", 56, bold=True)
-FONT_SUBTITLE = pygame.font.SysFont("Arial", 32, bold=True)
-FONT_HEADING = pygame.font.SysFont("Arial", 28, bold=True)
-FONT = pygame.font.SysFont("Arial", 22)
-FONT_SMALL = pygame.font.SysFont("Arial", 18)
-FONT_TINY = pygame.font.SysFont("Arial", 14)
+# Tipografia Aprimorada - Montserrat
+def get_font(name, size, bold=False):
+    """Tenta carregar uma fonte, com fallback para alternativas"""
+    import os
+    
+    # Primeiro, tenta carregar de arquivo local (se existir)
+    font_files = [
+        f"fonts/{name}-Bold.ttf" if bold else f"fonts/{name}-Regular.ttf",
+        f"fonts/{name}Bold.ttf" if bold else f"fonts/{name}Regular.ttf",
+        f"fonts/{name}.ttf",
+    ]
+    
+    for font_file in font_files:
+        if os.path.exists(font_file):
+            try:
+                return pygame.font.Font(font_file, size)
+            except:
+                pass
+    
+    # Se não encontrou arquivo, tenta fontes do sistema
+    # Montserrat pode ter variações no nome dependendo do sistema
+    if name == "Montserrat":
+        font_names = [
+            "Montserrat", 
+            "Montserrat Bold" if bold else "Montserrat Regular",
+            "Montserrat-Bold" if bold else "Montserrat-Regular",
+            "Segoe UI",  # Fonte moderna similar
+            "Calibri",   # Fonte moderna similar
+            "Arial"      # Fallback final
+        ]
+    else:
+        font_names = [name, "Segoe UI", "Calibri", "Arial"]
+    
+    for font_name in font_names:
+        try:
+            if bold:
+                font = pygame.font.SysFont(font_name, size, bold=True)
+            else:
+                font = pygame.font.SysFont(font_name, size)
+            # Testa se a fonte foi carregada corretamente
+            test_surf = font.render("Test", True, (255, 255, 255))
+            if test_surf:
+                return font
+        except:
+            continue
+    
+    # Fallback final: fonte padrão do pygame
+    return pygame.font.Font(None, size)
+
+# Inicializa as fontes com Montserrat (ou fallback)
+FONT_TITLE = get_font("Montserrat", 72, bold=True)  # Aumentado de 56 para 72
+FONT_TITLE_LARGE = get_font("Montserrat", 96, bold=True)  # Fonte extra grande para animação
+FONT_SUBTITLE = get_font("Montserrat", 32, bold=True)
+FONT_HEADING = get_font("Montserrat", 28, bold=True)
+FONT = get_font("Montserrat", 22, bold=False)
+FONT_SMALL = get_font("Montserrat", 18, bold=False)
+FONT_TINY = get_font("Montserrat", 14, bold=False)
 CLOCK = pygame.time.Clock()
 
 # Tabela de Frequências Base
@@ -158,7 +208,8 @@ class Button:
         self.text = text
         self.rect = pygame.Rect(rect)
         self.color = color
-        self.hover = hover or ACCENT_HOVER if color == ACCENT else tuple(min(255, c+20) for c in color)
+        # Hover mais sutil - apenas um leve brilho
+        self.hover = hover or tuple(min(255, c + 15) for c in color) if hover is None else hover
         self.icon = icon
         self.font = font or FONT
         self.pressed = False
@@ -168,35 +219,63 @@ class Button:
         is_hover = self.rect.collidepoint(m)
         is_pressed = is_hover and pygame.mouse.get_pressed()[0]
 
-        # Offset para efeito de press
-        offset = 2 if is_pressed else 0
+        # Offset muito sutil para efeito de press
+        offset = 1 if is_pressed else 0
         draw_rect = self.rect.copy()
         draw_rect.y += offset
 
-        # Sombra melhorada (apenas se não pressionado)
+        # Border radius mais arredondado (formato de pílula - usa metade da altura)
+        # Mas limita a um máximo para não ficar muito extremo
+        border_radius = min(draw_rect.h // 2, 35)
+
+        # Sombra muito sutil e suave (minimalista)
         if not is_pressed:
             shadow_rect = draw_rect.copy()
-            shadow_rect.y += 5
-            shadow_rect.x += 2
+            shadow_rect.y += 2
             shadow_surf = pygame.Surface((shadow_rect.w, shadow_rect.h), pygame.SRCALPHA)
-            pygame.draw.rect(shadow_surf, (0, 0, 0, 60), shadow_surf.get_rect(), border_radius=12)
+            # Sombra muito mais suave e translúcida
+            pygame.draw.rect(shadow_surf, (0, 0, 0, 20), shadow_surf.get_rect(), border_radius=border_radius)
             surf.blit(shadow_surf, shadow_rect.topleft)
 
-        # Fundo do botão
-        col = self.hover if is_hover else self.color
-        pygame.draw.rect(surf, col, draw_rect, border_radius=12)
+        # Cor base com leve ajuste no hover
+        base_col = self.hover if is_hover else self.color
+        
+        # Gradiente muito mais sutil (quase imperceptível)
+        col_start = tuple(min(255, c + 8) for c in base_col)
+        col_end = tuple(max(0, c - 5) for c in base_col)
+        
+        # Desenha o botão arredondado com gradiente
+        # Cria superfície temporária para aplicar o gradiente com border radius
+        button_surf = pygame.Surface((draw_rect.w, draw_rect.h), pygame.SRCALPHA)
+        
+        # Desenha o gradiente
+        draw_gradient(button_surf, (0, 0, draw_rect.w, draw_rect.h), col_start, col_end, vertical=True)
+        
+        # Cria máscara arredondada
+        mask = pygame.Surface((draw_rect.w, draw_rect.h), pygame.SRCALPHA)
+        pygame.draw.rect(mask, (255, 255, 255, 255), (0, 0, draw_rect.w, draw_rect.h), border_radius=border_radius)
+        
+        # Aplica máscara ao botão (multiplica alphas para criar bordas arredondadas)
+        button_surf.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        
+        # Aplica leve transparência se não estiver em hover
+        if not is_hover:
+            button_surf.set_alpha(240)
+        
+        surf.blit(button_surf, draw_rect.topleft)
 
-        # Borda sutil para destaque
-        border_color = tuple(min(255, c + 20) for c in col)
-        pygame.draw.rect(surf, border_color, draw_rect, width=1, border_radius=12)
+        # Sem bordas - design minimalista
+        # Apenas uma borda muito sutil no hover
+        if is_hover and not is_pressed:
+            border_color = tuple(min(255, c + 20) for c in base_col)
+            pygame.draw.rect(surf, border_color, draw_rect, width=1, border_radius=border_radius)
 
-        if is_hover:
-            pygame.draw.rect(surf, tuple(min(255, c+30) for c in col), draw_rect, width=2, border_radius=12)
-
-        # Texto com ícone (se houver)
-        text_surf = self.font.render(self.text, True, WHITE)
+        # Texto com ícone (se houver) - cor mais suave
+        text_color = WHITE if is_hover else (245, 245, 250)  # Branco levemente acinzentado quando não hover
+        text_surf = self.font.render(self.text, True, text_color)
+        
         if self.icon:
-            icon_surf = FONT_HEADING.render(self.icon, True, WHITE)
+            icon_surf = FONT_HEADING.render(self.icon, True, text_color)
             total_width = icon_surf.get_width() + 10 + text_surf.get_width()
             start_x = draw_rect.x + (draw_rect.w - total_width) // 2
             surf.blit(icon_surf, (start_x, draw_rect.y + (draw_rect.h - icon_surf.get_height()) // 2))
@@ -212,26 +291,54 @@ class Button:
 played_notes = []
 currently_playing = False
 
-# Função helper para desenhar cards com sombra
-def draw_card(surf, rect, color=BG_CARD, border_radius=16, shadow=True):
-    """Desenha um card com sombra e bordas arredondadas"""
+# Função para desenhar gradiente
+def draw_gradient(surf, rect, color_start, color_end, vertical=True):
+    """Desenha um gradiente linear no retângulo especificado"""
+    rect = pygame.Rect(rect)
+    gradient_surf = pygame.Surface((rect.w, rect.h))
+    
+    if vertical:
+        for y in range(rect.h):
+            ratio = y / rect.h
+            r = int(color_start[0] * (1 - ratio) + color_end[0] * ratio)
+            g = int(color_start[1] * (1 - ratio) + color_end[1] * ratio)
+            b = int(color_start[2] * (1 - ratio) + color_end[2] * ratio)
+            pygame.draw.line(gradient_surf, (r, g, b), (0, y), (rect.w, y))
+    else:
+        for x in range(rect.w):
+            ratio = x / rect.w
+            r = int(color_start[0] * (1 - ratio) + color_end[0] * ratio)
+            g = int(color_start[1] * (1 - ratio) + color_end[1] * ratio)
+            b = int(color_start[2] * (1 - ratio) + color_end[2] * ratio)
+            pygame.draw.line(gradient_surf, (r, g, b), (x, 0), (x, rect.h))
+    
+    surf.blit(gradient_surf, rect.topleft)
+
+# Função helper para desenhar cards com sombra e gradiente (minimalista)
+def draw_card(surf, rect, color=BG_CARD, border_radius=20, shadow=True, gradient=False):
+    """Desenha um card minimalista com sombra suave e bordas arredondadas"""
     rect = pygame.Rect(rect)
 
     if shadow:
-        # Sombra mais suave e escura
+        # Sombra muito mais suave e minimalista
         shadow_rect = rect.copy()
-        shadow_rect.y += 4
-        shadow_rect.x += 2
+        shadow_rect.y += 2
         shadow_surf = pygame.Surface((shadow_rect.w, shadow_rect.h), pygame.SRCALPHA)
-        pygame.draw.rect(shadow_surf, (0, 0, 0, 80), shadow_surf.get_rect(), border_radius=border_radius)
+        # Sombra muito translúcida
+        pygame.draw.rect(shadow_surf, (0, 0, 0, 15), shadow_surf.get_rect(), border_radius=border_radius)
         surf.blit(shadow_surf, shadow_rect.topleft)
 
-    # Desenha o card
-    pygame.draw.rect(surf, color, rect, border_radius=border_radius)
+    # Desenha o card com ou sem gradiente (muito mais sutil)
+    if gradient:
+        # Gradiente muito mais sutil
+        color_start = tuple(min(255, c + 10) for c in color)
+        color_end = tuple(max(0, c - 8) for c in color)
+        draw_gradient(surf, rect, color_start, color_end, vertical=True)
+    else:
+        pygame.draw.rect(surf, color, rect, border_radius=border_radius)
 
-    # Adiciona borda sutil para definição
-    border_color = tuple(min(255, c + 15) for c in color)
-    pygame.draw.rect(surf, border_color, rect, width=1, border_radius=border_radius)
+    # Sem borda ou borda muito sutil (minimalista)
+    # Removido para design mais limpo
 
     return rect
 
@@ -243,25 +350,24 @@ def draw_text_with_shadow(surf, text, font, color, pos, shadow_offset=2):
     surf.blit(shadow, (pos[0] + shadow_offset, pos[1] + shadow_offset))
     surf.blit(text_surf, pos)
 
-# Função para desenhar badge (vidas, pontos)
+# Função para desenhar badge (vidas, pontos) com gradiente minimalista
 def draw_badge(surf, text, rect, color=ACCENT, icon=None):
-    """Desenha um badge estilizado"""
+    """Desenha um badge minimalista com gradiente suave"""
     rect = pygame.Rect(rect)
 
-    # Sombra do badge
+    # Sombra muito suave
     shadow_rect = rect.copy()
-    shadow_rect.y += 3
-    shadow_rect.x += 1
+    shadow_rect.y += 1
     shadow_surf = pygame.Surface((shadow_rect.w, shadow_rect.h), pygame.SRCALPHA)
-    pygame.draw.rect(shadow_surf, (0, 0, 0, 70), shadow_surf.get_rect(), border_radius=25)
+    pygame.draw.rect(shadow_surf, (0, 0, 0, 12), shadow_surf.get_rect(), border_radius=20)
     surf.blit(shadow_surf, shadow_rect.topleft)
 
-    # Fundo do badge
-    pygame.draw.rect(surf, color, rect, border_radius=25)
+    # Fundo do badge com gradiente muito sutil
+    color_start = tuple(min(255, c + 8) for c in color)
+    color_end = tuple(max(0, c - 5) for c in color)
+    draw_gradient(surf, rect, color_start, color_end, vertical=True)
 
-    # Borda para definição
-    border_color = tuple(min(255, c + 30) for c in color)
-    pygame.draw.rect(surf, border_color, rect, width=1, border_radius=25)
+    # Sem borda - design minimalista
 
     if icon:
         icon_surf = FONT_HEADING.render(icon, True, WHITE)
@@ -430,12 +536,12 @@ detected_freq = None
 detector_result = None
 
 btn_start = Button("INICIAR", (WIDTH//2 - 160, 220, 320, 70), color=ACCENT, font=FONT_HEADING)
-btn_rules = Button("REGRAS", (WIDTH//2 - 160, 310, 320, 60), color=BG_SURFACE, font=FONT)
-btn_conf = Button("CONFIGURAÇÕES", (WIDTH//2 - 160, 390, 320, 60), color=BG_SURFACE, font=FONT)
-btn_back = Button("VOLTAR", (30, HEIGHT-80, 140, 50), color=GRAY_700, font=FONT_SMALL)
+btn_rules = Button("REGRAS", (WIDTH//2 - 160, 310, 320, 60), color=(100, 70, 150), hover=(120, 90, 170), font=FONT)
+btn_conf = Button("CONFIGURAÇÕES", (WIDTH//2 - 160, 390, 320, 60), color=(100, 70, 150), hover=(120, 90, 170), font=FONT)
+btn_back = Button("VOLTAR", (30, HEIGHT-80, 140, 50), color=GRAY_700, hover=(100, 90, 130), font=FONT_SMALL)
 btn_menu = Button("MENU", (WIDTH-180, HEIGHT-80, 150, 50), color=DANGER, hover=DANGER_HOVER, font=FONT_SMALL)
 
-btn_repeat = Button("Repetir Notas", (60, 280, 300, 60), color=BG_SURFACE)
+btn_repeat = Button("Repetir Notas", (60, 280, 300, 60), color=(80, 60, 120), hover=(100, 80, 140))
 btn_action_sing = Button("CANTAR NOTA", (60, 360, 300, 60), color=WARNING)
 btn_guess = Button("ADVINHAR MÚSICA", (60, 440, 300, 60), color=ACCENT)
 
@@ -452,36 +558,158 @@ def start_round():
     played_notes = []
     message = "Ouça a primeira nota ou tente advinhar a música."
 
+def draw_note_symbol(surf, x, y, size=30, color=(255, 255, 255)):
+    """Desenha uma nota musical decorativa"""
+    # Cria uma superfície com alpha para transparência
+    note_surf = pygame.Surface((size * 2, size * 3), pygame.SRCALPHA)
+    # Cabeça da nota (círculo)
+    pygame.draw.circle(note_surf, (*color, 150), (size, size // 2), size // 2, 2)
+    # Haste da nota
+    pygame.draw.line(note_surf, (*color, 150), (size, size), (size, size * 2), 2)
+    surf.blit(note_surf, (x - size, y - size // 2))
+
+def draw_musical_staff(surf, x, y, width, height):
+    """Desenha uma pauta musical decorativa"""
+    staff_surf = pygame.Surface((width, height), pygame.SRCALPHA)
+    line_color = (255, 255, 255, 30)
+    line_spacing = height // 5
+    for i in range(5):
+        pygame.draw.line(staff_surf, line_color, (0, i * line_spacing), 
+                        (width, i * line_spacing), 1)
+    surf.blit(staff_surf, (x, y))
+
 def draw_menu():
-    screen.fill(BG_DARK)
+    # Background com gradiente roxo-azul
+    purple_start = (60, 20, 80)  # Roxo escuro
+    blue_end = (20, 40, 100)     # Azul escuro
+    draw_gradient(screen, (0, 0, WIDTH, HEIGHT), purple_start, blue_end, vertical=True)
 
-    # Título com efeito de gradiente simulado
+    # Elementos musicais decorativos no fundo
+    # Pautas musicais sutis
+    draw_musical_staff(screen, 50, 50, 200, 80)
+    draw_musical_staff(screen, WIDTH - 250, 50, 200, 80)
+    draw_musical_staff(screen, 50, HEIGHT - 150, 200, 80)
+    draw_musical_staff(screen, WIDTH - 250, HEIGHT - 150, 200, 80)
+
+    # Notas musicais decorativas
+    note_color = (255, 255, 255)
+    draw_note_symbol(screen, 120, 100, 25, note_color)
+    draw_note_symbol(screen, 180, 120, 25, note_color)
+    draw_note_symbol(screen, WIDTH - 180, 100, 25, note_color)
+    draw_note_symbol(screen, WIDTH - 120, 120, 25, note_color)
+    draw_note_symbol(screen, 120, HEIGHT - 100, 25, note_color)
+    draw_note_symbol(screen, 180, HEIGHT - 80, 25, note_color)
+    draw_note_symbol(screen, WIDTH - 180, HEIGHT - 100, 25, note_color)
+    draw_note_symbol(screen, WIDTH - 120, HEIGHT - 80, 25, note_color)
+
+    # Título principal com design musical melhorado e animação
     title = "SOLFEJO"
-    draw_text_with_shadow(screen, title, FONT_TITLE, ACCENT, (WIDTH//2 - 200, 60), shadow_offset=4)
+    title_x = WIDTH // 2
+    title_y = 50
+    
+    # Animação de pulsação baseada no tempo
+    current_time = pygame.time.get_ticks()
+    # Pulsação suave (ciclo de 2 segundos)
+    pulse_speed = 0.002
+    pulse = 1.0 + math.sin(current_time * pulse_speed) * 0.08  # Varia entre 0.92 e 1.08
+    # Brilho pulsante
+    glow_intensity = 0.5 + math.sin(current_time * pulse_speed) * 0.5  # Varia entre 0 e 1
+    
+    # Calcula o tamanho animado
+    base_size = 96
+    animated_size = int(base_size * pulse)
+    animated_font = get_font("Montserrat", animated_size, bold=True)
+    
+    # Renderiza o título com tamanho animado
+    title_surf = animated_font.render(title, True, ACCENT)
+    title_width = title_surf.get_width()
+    title_height = title_surf.get_height()
+    
+    # Desenha o título com múltiplas camadas para efeito de brilho animado
+    # Sombra principal (múltiplas camadas para suavidade)
+    for i in range(3):
+        shadow_offset = 4 - i
+        shadow_alpha = int(40 - i * 12)
+        shadow_surf = animated_font.render(title, True, (0, 0, 0))
+        shadow_surf.set_alpha(shadow_alpha)
+        screen.blit(shadow_surf, (title_x - title_width//2 + shadow_offset, title_y + shadow_offset))
+    
+    # Efeito de brilho pulsante (múltiplas camadas)
+    num_glow_layers = 3
+    for i in range(num_glow_layers):
+        glow_alpha = int(80 * glow_intensity / (i + 1))
+        glow_offset = i * 2
+        glow_color = tuple(min(255, c + int(30 * (i + 1))) for c in ACCENT)
+        glow_surf = animated_font.render(title, True, glow_color)
+        glow_surf.set_alpha(glow_alpha)
+        screen.blit(glow_surf, (title_x - title_width//2 - glow_offset, title_y - glow_offset))
+    
+    # Camada base do título
+    screen.blit(title_surf, (title_x - title_width//2, title_y))
+    
+    # Camada de brilho superior (mais clara) com animação
+    glow_color = tuple(min(255, c + int(40 * glow_intensity)) for c in ACCENT)
+    glow_surf = animated_font.render(title, True, glow_color)
+    glow_surf.set_alpha(int(150 * glow_intensity))
+    screen.blit(glow_surf, (title_x - title_width//2 - 2, title_y - 2))
 
-    # Subtítulo
+    # Ícones musicais ao lado do título com animação suave
+    music_icon = "♪"
+    icon_size = int(56 * pulse)
+    icon_font = get_font("Montserrat", icon_size, bold=True)
+    icon_surf = icon_font.render(music_icon, True, (200, 180, 255))
+    icon_alpha = int(200 + 55 * glow_intensity)
+    icon_surf.set_alpha(icon_alpha)
+    
+    # Ícone esquerdo (com leve rotação/posição animada)
+    icon_offset_y = int(math.sin(current_time * pulse_speed * 1.5) * 3)
+    screen.blit(icon_surf, (title_x - title_width//2 - 90, title_y + 10 + icon_offset_y))
+    # Ícone direito
+    icon_offset_y2 = int(math.sin(current_time * pulse_speed * 1.5 + math.pi) * 3)
+    screen.blit(icon_surf, (title_x + title_width//2 + 30, title_y + 10 + icon_offset_y2))
+    
+    # Adiciona mais ícones musicais menores decorativos com animação
+    small_icon = "♫"
+    small_icon_size = int(32 * (1.0 + math.sin(current_time * pulse_speed * 2) * 0.1))
+    small_icon_font = get_font("Montserrat", small_icon_size, bold=True)
+    small_icon_surf = small_icon_font.render(small_icon, True, (180, 160, 240))
+    small_icon_surf.set_alpha(int(180 + 75 * glow_intensity))
+    screen.blit(small_icon_surf, (title_x - title_width//2 - 120, title_y + 20))
+    screen.blit(small_icon_surf, (title_x + title_width//2 + 60, title_y + 20))
+
+    # Subtítulo melhorado com estilo musical (ajustado para o título maior)
     subtitle = "Aprenda música de forma divertida"
-    subtitle_surf = FONT_SMALL.render(subtitle, True, TEXT_SECONDARY)
-    screen.blit(subtitle_surf, (WIDTH//2 - subtitle_surf.get_width()//2, 130))
+    subtitle_y = title_y + title_height + 20  # Posiciona abaixo do título animado
+    subtitle_surf = FONT_SMALL.render(subtitle, True, (220, 200, 255))
+    screen.blit(subtitle_surf, (WIDTH//2 - subtitle_surf.get_width()//2, subtitle_y))
+    
+    # Linha decorativa sob o subtítulo
+    line_y = subtitle_y + 25
+    line_surf = pygame.Surface((300, 2), pygame.SRCALPHA)
+    line_surf.fill((180, 160, 220, 100))
+    screen.blit(line_surf, (WIDTH//2 - 150, line_y))
 
     # Desenha os botões
     btn_start.draw(screen)
     btn_rules.draw(screen)
     btn_conf.draw(screen)
 
-    # Footer com informações
-    footer_text = "Piano Suave (Anti-Clipping) | v2.0"
-    footer_surf = FONT_TINY.render(footer_text, True, TEXT_SECONDARY)
+    # Footer melhorado com ícone musical
+    footer_text = "♪ Piano Suave (Anti-Clipping) | v2.0 ♪"
+    footer_surf = FONT_TINY.render(footer_text, True, (180, 170, 220))
     screen.blit(footer_surf, (WIDTH//2 - footer_surf.get_width()//2, HEIGHT - 40))
 
 def draw_rules():
-    screen.fill(BG_DARK)
+    # Background com gradiente roxo-azul
+    purple_start = (60, 20, 80)  # Roxo escuro
+    blue_end = (20, 40, 100)     # Azul escuro
+    draw_gradient(screen, (0, 0, WIDTH, HEIGHT), purple_start, blue_end, vertical=True)
 
     # Título
     draw_text_with_shadow(screen, "REGRAS DO JOGO", FONT_SUBTITLE, ACCENT, (50, 30), shadow_offset=3)
 
-    # Card com regras
-    card_rect = draw_card(screen, (50, 100, WIDTH-100, 450), BG_CARD)
+    # Card com regras e gradiente
+    card_rect = draw_card(screen, (50, 100, WIDTH-100, 450), BG_CARD, gradient=True)
 
     rules = [
         ("1.", "Você começa com 3 vidas", "Não desperdice tentando adivinhar sem certeza!"),
@@ -509,13 +737,16 @@ def draw_rules():
     btn_back.draw(screen)
 
 def draw_settings():
-    screen.fill(BG_DARK)
+    # Background com gradiente roxo-azul
+    purple_start = (60, 20, 80)  # Roxo escuro
+    blue_end = (20, 40, 100)     # Azul escuro
+    draw_gradient(screen, (0, 0, WIDTH, HEIGHT), purple_start, blue_end, vertical=True)
 
     # Título
     draw_text_with_shadow(screen, "CONFIGURAÇÕES", FONT_SUBTITLE, ACCENT, (50, 30), shadow_offset=3)
 
-    # Card de configurações
-    card_rect = draw_card(screen, (50, 100, WIDTH-100, 400), BG_CARD)
+    # Card de configurações com gradiente
+    card_rect = draw_card(screen, (50, 100, WIDTH-100, 400), BG_CARD, gradient=True)
 
     # Afinação
     y = card_rect.y + 40
@@ -550,15 +781,18 @@ def draw_settings():
     btn_back.draw(screen)
 
 def draw_play():
-    screen.fill(BG_DARK)
+    # Background com gradiente roxo-azul
+    purple_start = (60, 20, 80)  # Roxo escuro
+    blue_end = (20, 40, 100)     # Azul escuro
+    draw_gradient(screen, (0, 0, WIDTH, HEIGHT), purple_start, blue_end, vertical=True)
 
     # Header com badges de status
     header_y = 25
     draw_badge(screen, f"Vidas: {lives}", (50, header_y, 140, 50), DANGER)
     draw_badge(screen, f"Pontos: {score}", (210, header_y, 140, 50), ACCENT)
 
-    # Card principal de informações
-    card_main = draw_card(screen, (50, 100, WIDTH-100, 150), BG_CARD)
+    # Card principal de informações com gradiente
+    card_main = draw_card(screen, (50, 100, WIDTH-100, 150), BG_CARD, gradient=True)
 
     # Música (oculta ou revelada)
     nome_show = current_song_data.nome if state == 'gameover' else '???'
@@ -578,7 +812,7 @@ def draw_play():
     # Próxima nota (se houver)
     global play_here_button
     if current_index < len(current_song_seq):
-        card_next = draw_card(screen, (400, 100, 550, 150), BG_SURFACE)
+        card_next = draw_card(screen, (400, 100, 550, 150), BG_SURFACE, gradient=True)
         next_label = FONT_SMALL.render("Próxima Nota:", True, TEXT_SECONDARY)
         next_value = FONT_TITLE.render("?", True, WARNING)
         screen.blit(next_label, (card_next.x + 30, card_next.y + 25))
@@ -598,9 +832,10 @@ def draw_play():
     input_label = FONT_SMALL.render("Adivinhe a música:", True, TEXT_SECONDARY)
     screen.blit(input_label, (400, input_y - 25))
 
-    input_rect = draw_card(screen, (400, input_y, 540, 55), BG_SURFACE, border_radius=12)
+    input_rect = draw_card(screen, (400, input_y, 540, 55), BG_SURFACE, border_radius=20, gradient=True)
     if input_active:
-        pygame.draw.rect(screen, ACCENT, input_rect, width=2, border_radius=12)
+        # Borda muito mais sutil e minimalista
+        pygame.draw.rect(screen, ACCENT, input_rect, width=1, border_radius=20)
 
     display_text = user_text if (input_active or user_text) else "Digite aqui..."
     col = TEXT_PRIMARY if input_active else TEXT_SECONDARY
@@ -617,14 +852,17 @@ def draw_play():
     btn_menu.draw(screen)
 
 def draw_detector():
-    screen.fill(BG_DARK)
+    # Background com gradiente roxo-azul
+    purple_start = (60, 20, 80)  # Roxo escuro
+    blue_end = (20, 40, 100)     # Azul escuro
+    draw_gradient(screen, (0, 0, WIDTH, HEIGHT), purple_start, blue_end, vertical=True)
 
     # Título
     draw_text_with_shadow(screen, "DETECTOR DE PITCH", FONT_SUBTITLE, ACCENT, (50, 30), shadow_offset=3)
 
-    # Card principal - Nota alvo
+    # Card principal - Nota alvo com gradiente
     target = current_song_seq[current_index][0] if current_index < len(current_song_seq) else "-"
-    card_target = draw_card(screen, (50, 100, WIDTH-350, 200), BG_CARD)
+    card_target = draw_card(screen, (50, 100, WIDTH-350, 200), BG_CARD, gradient=True)
 
     target_label = FONT_SMALL.render("Cante e SEGURE esta nota:", True, TEXT_SECONDARY)
     screen.blit(target_label, (card_target.x + 30, card_target.y + 25))
@@ -635,8 +873,8 @@ def draw_detector():
     instruction = FONT_TINY.render("Mantenha a nota estável por 1 segundo", True, TEXT_SECONDARY)
     screen.blit(instruction, (card_target.x + 30, card_target.y + 160))
 
-    # Card de detecção
-    card_detect = draw_card(screen, (50, 320, WIDTH-350, 250), BG_SURFACE)
+    # Card de detecção com gradiente
+    card_detect = draw_card(screen, (50, 320, WIDTH-350, 250), BG_SURFACE, gradient=True)
 
     detect_label = FONT_SMALL.render("Detecção em tempo real:", True, TEXT_SECONDARY)
     screen.blit(detect_label, (card_detect.x + 30, card_detect.y + 25))
@@ -652,10 +890,10 @@ def draw_detector():
         note_only = ''.join([c for c in detected_name if not c.isdigit()])
         if note_only == target:
             match_indicator = FONT.render("Nota Correta!", True, SUCCESS)
-            pygame.draw.rect(screen, SUCCESS, (card_detect.x + 30, card_detect.y + 140, 300, 8), border_radius=4)
+            pygame.draw.rect(screen, SUCCESS, (card_detect.x + 30, card_detect.y + 140, 300, 8), border_radius=8)
         else:
             match_indicator = FONT.render("Continue tentando...", True, WARNING)
-            pygame.draw.rect(screen, WARNING, (card_detect.x + 30, card_detect.y + 140, 300, 8), border_radius=4)
+            pygame.draw.rect(screen, WARNING, (card_detect.x + 30, card_detect.y + 140, 300, 8), border_radius=8)
         screen.blit(match_indicator, (card_detect.x + 30, card_detect.y + 165))
     else:
         no_detect = FONT.render("Aguardando entrada...", True, TEXT_SECONDARY)
@@ -811,10 +1049,13 @@ while running:
     elif state == 'play': draw_play()
     elif state == 'detector': draw_detector()
     elif state == 'gameover':
-        screen.fill(BG_DARK)
+        # Background com gradiente roxo-azul
+        purple_start = (60, 20, 80)  # Roxo escuro
+        blue_end = (20, 40, 100)     # Azul escuro
+        draw_gradient(screen, (0, 0, WIDTH, HEIGHT), purple_start, blue_end, vertical=True)
 
-        # Card central de game over
-        card = draw_card(screen, (WIDTH//2 - 300, HEIGHT//2 - 200, 600, 400), BG_CARD)
+        # Card central de game over com gradiente
+        card = draw_card(screen, (WIDTH//2 - 300, HEIGHT//2 - 200, 600, 400), BG_CARD, gradient=True)
 
         # Título
         title_surf = FONT_TITLE.render("FIM DE JOGO", True, DANGER)
