@@ -29,7 +29,7 @@ TUNING_MULTIPLIER = 2 ** (TUNING_OFFSET / 12.0)
 # ==============================================================================
 class PitchDetector:
     def __init__(self):
-        self.BUFFER_SIZE = 1024
+        self.BUFFER_SIZE = 8192
         self.FORMAT = pyaudio.paFloat32
         self.CHANNELS = 1
         self.RATE = 44100 
@@ -384,6 +384,69 @@ def draw_badge(surf, text, rect, color=ACCENT, icon=None):
         surf.blit(text_surf, (rect.x + (rect.w - text_surf.get_width()) // 2,
                              rect.y + (rect.h - text_surf.get_height()) // 2))
 
+
+def cents_difference(freq, target_freq):
+    """Diferença em cents entre a frequência atual e a frequência alvo"""
+    if freq <= 0 or target_freq <= 0:
+        return None
+    return 1200 * math.log2(freq / target_freq)
+
+
+def draw_needle_gauge(surf, rect, current_freq, target_freq, tolerance_hz=None, min_freq=0.0, max_freq=500.0):
+    """Mostra uma agulha absoluta de 0 Hz a 400 Hz, destacando a posição do alvo."""
+    rect = pygame.Rect(rect)
+    pygame.draw.rect(surf, BG_CARD, rect, border_radius=16)
+    pygame.draw.rect(surf, GRAY_700, rect, width=1, border_radius=16)
+
+    # Normaliza limites
+    min_f = max(0.0, float(min_freq))
+    max_f = max(min_f + 1.0, float(max_freq))  # evita divisão por zero
+    span = max_f - min_f
+
+    # Valores atuais
+    curr = None if current_freq is None or current_freq <= 0 else float(current_freq)
+    tgt = None if target_freq is None or target_freq <= 0 else float(target_freq)
+
+    tol = tolerance_hz if tolerance_hz is not None else 5.0
+
+    bar_x = rect.x + 30
+    bar_w = rect.w - 60
+    bar_y = rect.y + rect.h // 2 - 6
+    bar_h = 12
+
+    pygame.draw.rect(surf, GRAY_800, (bar_x, bar_y, bar_w, bar_h), border_radius=8)
+
+    # Faixa verde em torno do alvo
+    if tgt is not None:
+        tgt_clamped = max(min_f, min(max_f, tgt))
+        tol_left = max(min_f, tgt_clamped - tol)
+        tol_right = min(max_f, tgt_clamped + tol)
+        tol_px_start = bar_x + int((tol_left - min_f) / span * bar_w)
+        tol_px_end = bar_x + int((tol_right - min_f) / span * bar_w)
+        pygame.draw.rect(surf, SUCCESS, (tol_px_start, bar_y, tol_px_end - tol_px_start, bar_h), border_radius=8)
+
+    # Agulha (frequência atual)
+    if curr is not None:
+        curr_clamped = max(min_f, min(max_f, curr))
+        needle_x = bar_x + int((curr_clamped - min_f) / span * bar_w)
+        pygame.draw.line(surf, WARNING, (needle_x, bar_y - 14), (needle_x, bar_y + bar_h + 14), 3)
+        pygame.draw.circle(surf, WHITE, (needle_x, bar_y + bar_h + 16), 6)
+
+    # Marcador do alvo
+    if tgt is not None:
+        target_x = bar_x + int((tgt_clamped - min_f) / span * bar_w)
+        pygame.draw.line(surf, ACCENT, (target_x, bar_y - 10), (target_x, bar_y + bar_h + 10), 2)
+        pygame.draw.circle(surf, ACCENT, (target_x, bar_y - 12), 4)
+
+    label_font = FONT_TINY
+    left = label_font.render(f"{min_f:.0f} Hz", True, TEXT_SECONDARY)
+    mid_val = (min_f + max_f) / 2
+    mid = label_font.render(f"{mid_val:.0f} Hz", True, TEXT_SECONDARY)
+    right = label_font.render(f"{max_f:.0f} Hz", True, TEXT_SECONDARY)
+    surf.blit(left, (bar_x, bar_y + 20))
+    surf.blit(mid, (bar_x + (bar_w - mid.get_width()) // 2, bar_y + 20))
+    surf.blit(right, (bar_x + bar_w - right.get_width(), bar_y + 20))
+
 def synth_piano_note(base_freq, duration=1.0, volume=0.3): # Volume padrão reduzido para 0.3
     """
     Gera som de piano elétrico com proteção contra distorção (Clipping).
@@ -462,17 +525,20 @@ def play_note(freq, duration, record=True):
 # 4. LÓGICA DO DETECTOR
 # ==============================================================================
 def detector_process(target_note_name):
-    global message, detected_name, detected_freq, detector_result
+    global message, detected_name, detected_freq, detector_result, detected_deviation_hz
 
     detected_name = None
     detected_freq = None
     detector_result = None
+    detected_deviation_hz = None
 
     while currently_playing:
         time.sleep(0.01)
 
     detector.start()
     message = "Prepare-se... Cante e SEGURE a nota!"
+    target_freq = NOTE_FREQS.get(target_note_name)
+    tolerance_hz = 30.0
     
     session_start_time = time.time()
     stable_start_time = None 
@@ -485,26 +551,39 @@ def detector_process(target_note_name):
         if note_completa:
             detected_name = note_completa
             detected_freq = freq
+            detected_deviation_hz = (freq - target_freq) if target_freq else None
             note_only_name = ''.join([c for c in note_completa if not c.isdigit()])
-            
-            if note_only_name == target_note_name:
+            within_tolerance = (target_freq is not None and
+                                 tolerance_hz is not None and
+                                 detected_deviation_hz is not None and
+                                 abs(detected_deviation_hz) <= tolerance_hz)
+
+            if within_tolerance:
                 if stable_start_time is None:
                     stable_start_time = time.time()
-                
+
                 elapsed = time.time() - stable_start_time
-                message = f"SEGURE! {elapsed:.1f}s / {REQUIRED_STABILITY}s"
-                
+                message = f"Mantenha por {REQUIRED_STABILITY - elapsed:.1f}s" if elapsed < REQUIRED_STABILITY else "Nota estável!"
+
                 if elapsed >= REQUIRED_STABILITY:
                     detector_result = True
-                    message = f"ACERTOU! Nota {detected_name} confirmada."
+                    message = f"Nota {target_note_name} confirmada."
                     found_match = True
-                    break 
+                    break
             else:
                 stable_start_time = None
-                message = f"Detectado: {detected_name}. Buscando: {target_note_name}"
+                if detected_deviation_hz is None:
+                    message = f"Detectado: {detected_name}. Alvo: {target_note_name}"
+                else:
+                    direction = "Suba" if detected_deviation_hz < 0 else "Desça"
+                    message = f"{direction} {abs(detected_deviation_hz):.2f} Hz até {target_note_name}"
         else:
             stable_start_time = None
-            message = "Silêncio..."
+            detected_deviation_hz = None
+            if target_freq:
+                message = f"Silêncio... alvo {target_note_name} ({target_freq:.1f} Hz)"
+            else:
+                message = "Silêncio..."
         
         time.sleep(0.05)
 
@@ -535,6 +614,7 @@ input_active = False
 currently_playing = False
 detected_name = None
 detected_freq = None
+detected_deviation_hz = None
 detector_result = None
 
 btn_start = Button("INICIAR", (WIDTH//2 - 160, 220, 320, 70), color=ACCENT, font=FONT_HEADING)
@@ -845,21 +925,18 @@ def draw_play():
     if message:
         msg_color = WARNING if "tempo" in message.lower() else SUCCESS if "acertou" in message.lower() else TEXT_PRIMARY
         msg_surf = FONT_SMALL.render(message, True, msg_color)
-        screen.blit(msg_surf, (50, HEIGHT - 50))
+        screen.blit(msg_surf, (200, HEIGHT - 50))
 
     # Botão para retornar ao menu
     btn_menu.draw(screen)
 
 def draw_detector():
-    # Background com gradiente roxo-azul
-    purple_start = (60, 20, 80)  # Roxo escuro
-    blue_end = (20, 40, 100)     # Azul escuro
+    purple_start = (60, 20, 80)
+    blue_end = (20, 40, 100)    
     draw_gradient(screen, (0, 0, WIDTH, HEIGHT), purple_start, blue_end, vertical=True)
 
-    # Título
     draw_text_with_shadow(screen, "DETECTOR DE PITCH", FONT_SUBTITLE, ACCENT, (50, 30), shadow_offset=3)
 
-    # Card principal - Nota alvo com gradiente
     target = current_song_seq[current_index][0] if current_index < len(current_song_seq) else "-"
     card_target = draw_card(screen, (50, 100, WIDTH-350, 200), BG_CARD, gradient=True)
 
@@ -877,40 +954,59 @@ def draw_detector():
 
     detect_label = FONT_SMALL.render("Detecção em tempo real:", True, TEXT_SECONDARY)
     screen.blit(detect_label, (card_detect.x + 30, card_detect.y + 25))
+    target_freq = NOTE_FREQS.get(target)
+    gauge_rect = (card_detect.x + 30, card_detect.y + 120, card_detect.w - 60, 120)
 
     if detected_name:
-        # Nota detectada
         detected_surf = FONT_HEADING.render(detected_name, True, SUCCESS)
         freq_surf = FONT_SMALL.render(f"{detected_freq:.1f} Hz", True, TEXT_SECONDARY)
         screen.blit(detected_surf, (card_detect.x + 30, card_detect.y + 60))
-        screen.blit(freq_surf, (card_detect.x + 30, card_detect.y + 100))
+        screen.blit(freq_surf, (card_detect.x + 30, card_detect.y + 95))
 
-        # Indicador visual de correspondência
-        note_only = ''.join([c for c in detected_name if not c.isdigit()])
-        if note_only == target:
-            match_indicator = FONT.render("Nota Correta!", True, SUCCESS)
-            pygame.draw.rect(screen, SUCCESS, (card_detect.x + 30, card_detect.y + 140, 300, 8), border_radius=8)
-        else:
-            match_indicator = FONT.render("Continue tentando...", True, WARNING)
-            pygame.draw.rect(screen, WARNING, (card_detect.x + 30, card_detect.y + 140, 300, 8), border_radius=8)
-        screen.blit(match_indicator, (card_detect.x + 30, card_detect.y + 165))
+        deviation_to_use = detected_deviation_hz if detected_deviation_hz is not None else (detected_freq - target_freq if target_freq else None)
+
+        draw_needle_gauge(
+            screen,
+            gauge_rect,
+            detected_freq,
+            target_freq,
+            tolerance_hz=30.0,
+            min_freq=0.0,
+            max_freq=500.0,
+        )
+
     else:
         no_detect = FONT.render("Aguardando entrada...", True, TEXT_SECONDARY)
         screen.blit(no_detect, (card_detect.x + 30, card_detect.y + 60))
+        draw_needle_gauge(
+            screen,
+            gauge_rect,
+            None,
+            target_freq,
+            tolerance_hz=30.0,
+            min_freq=0.0,
+            max_freq=500.0,
+        )
+
+    if target_freq:
+        target_text = FONT_TINY.render(f"Alvo: {target} = {target_freq:.1f} Hz", True, TEXT_SECONDARY)
+        screen.blit(target_text, (card_detect.x + 30, card_detect.y + 110))
 
     # Mensagem de status
-    msg_y = card_detect.y + 210
+    msg_y = card_detect.y + 215
     msg_color = WARNING if detector.running else TEXT_SECONDARY
     if detector_result is True: msg_color = SUCCESS
     elif detector_result is False: msg_color = DANGER
     msg_surf = FONT_SMALL.render(message, True, msg_color)
-    screen.blit(msg_surf, (card_detect.x + 30, msg_y))
+    screen.blit(msg_surf, (card_detect.x + 40, msg_y))
 
     cooldown_active = time.time() < button_cooldown_until
     if cooldown_active:
-        btn_start_listen.color = (150, 150, 150)   # CINZA = desabilitado
+        btn_start_listen.color = (150, 150, 150)
+        btn_start_listen.hover = (150, 150, 150)   
     else:
-        btn_start_listen.color = (0, 200, 0)       # VERDE = ativo
+        btn_start_listen.color = (0, 200, 0)       
+        btn_start_listen.hover = (0, 200, 0)       
 
 
     # Botões de controle (lado direito)
@@ -959,10 +1055,10 @@ while running:
 
             if btn_repeat.clicked(event):
                 def replay():
-                    played_past_notes = current_song_seq[:current_index]
-                    print("Replaying past notes:", played_past_notes)
-                    for n in played_past_notes:
-                        threading.Thread(target=play_note, args=(NOTE_FREQS[n[0]], n[1]), daemon=True).start()
+                    notas_reveladas = current_song_seq[:current_index]
+                    for nota_nome, duracao in notas_reveladas:
+                        play_note(NOTE_FREQS[nota_nome], duracao, record=False)
+                threading.Thread(target=replay, daemon=True).start()
 
             if play_here_button and play_here_button.clicked(event):
                 if current_index < len(current_song_seq):
@@ -1035,18 +1131,6 @@ while running:
                     current_index += 1
                     message = "Nota desbloqueada!"
                     state = 'play'
-                    def play_released():
-                        seq_to_play = []
-                        if len(played_notes) >= current_index:
-                            seq_to_play = played_notes[:current_index]
-                            played_past_notes.append(current_song_seq[current_index-1])
-                            for freq, dur in seq_to_play:
-                                play_note(freq, dur, record=False)
-                        else:
-                            seq_to_play = current_song_seq[:current_index]
-                            for n in seq_to_play:
-                                play_note(NOTE_FREQS[n[0]], n[1], record=False)
-                    threading.Thread(target=play_released, daemon=True).start()
                 else:
                     message = "Segure a nota por 1s até aparecer ACERTOU."
 
