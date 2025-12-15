@@ -611,11 +611,15 @@ current_index = 0
 message = ""
 user_text = ""
 input_active = False
+guess_modal_open = False
 currently_playing = False
 detected_name = None
 detected_freq = None
 detected_deviation_hz = None
 detector_result = None
+show_success_animation = False
+success_animation_start_time = 0
+SUCCESS_ANIMATION_DURATION = 2.0  # Duração em segundos
 
 btn_start = Button("INICIAR", (WIDTH//2 - 160, 220, 320, 70), color=ACCENT, font=FONT_HEADING)
 btn_rules = Button("REGRAS", (WIDTH//2 - 160, 310, 320, 60), color=(100, 70, 150), hover=(120, 90, 170), font=FONT)
@@ -630,6 +634,10 @@ btn_guess = Button("ADVINHAR MÚSICA", (60, 440, 300, 60), color=ACCENT)
 btn_play_target = Button("Ouvir Nota Alvo", (WIDTH-280, 140, 240, 55), color=WARNING)
 btn_start_listen = Button("Gravar (Mic)", (WIDTH-280, 215, 240, 55), color=SUCCESS)
 btn_skip_confirm = Button("Confirmar", (WIDTH-280, 290, 240, 55), color=ACCENT)
+
+# Botões do modal de adivinhar música (serão criados dinamicamente)
+btn_modal_confirm = None
+btn_modal_cancel = None
 
 
 def start_round():
@@ -863,72 +871,406 @@ def draw_settings():
 
     btn_back.draw(screen)
 
+def draw_success_animation():
+    """Desenha uma animação visual quando o jogador acerta uma nota"""
+    global show_success_animation, success_animation_start_time
+    
+    if not show_success_animation:
+        return
+    
+    # Calcula o tempo decorrido desde o início da animação (em milissegundos)
+    current_time = pygame.time.get_ticks()
+    elapsed_ms = current_time - success_animation_start_time
+    elapsed = elapsed_ms / 1000.0  # Converte para segundos
+    
+    # Se passou o tempo, desativa a animação
+    if elapsed >= SUCCESS_ANIMATION_DURATION:
+        show_success_animation = False
+        return
+    
+    # Calcula a opacidade (fade out nos últimos 0.5 segundos)
+    fade_start = SUCCESS_ANIMATION_DURATION - 0.5
+    if elapsed > fade_start:
+        alpha = int(255 * (1 - (elapsed - fade_start) / 0.5))
+    else:
+        alpha = 255
+    
+    # Calcula o tamanho pulsante da animação
+    pulse_speed = 0.02
+    pulse = 1.0 + math.sin(pygame.time.get_ticks() * pulse_speed) * 0.2
+    
+    # Overlay semi-transparente verde
+    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    overlay_alpha = int(30 * (alpha / 255))
+    overlay.fill((0, 255, 100, overlay_alpha))
+    screen.blit(overlay, (0, 0))
+    
+    # Card central com mensagem de sucesso
+    card_width = 500
+    card_height = 250
+    card_x = (WIDTH - card_width) // 2
+    card_y = (HEIGHT - card_height) // 2
+    
+    # Efeito de escala pulsante
+    scale = pulse
+    scaled_width = int(card_width * scale)
+    scaled_height = int(card_height * scale)
+    scaled_x = (WIDTH - scaled_width) // 2
+    scaled_y = (HEIGHT - scaled_height) // 2
+    
+    # Card com gradiente verde
+    card_surf = pygame.Surface((scaled_width, scaled_height), pygame.SRCALPHA)
+    card_rect = pygame.Rect(0, 0, scaled_width, scaled_height)
+    
+    # Gradiente verde brilhante
+    color_start = (50, 255, 150)
+    color_end = (80, 220, 120)
+    draw_gradient(card_surf, card_rect, color_start, color_end, vertical=True)
+    
+    # Borda brilhante
+    pygame.draw.rect(card_surf, (100, 255, 180, alpha), card_rect, width=4, border_radius=25)
+    
+    card_surf.set_alpha(alpha)
+    screen.blit(card_surf, (scaled_x, scaled_y))
+    
+    # Ícone de check/certo grande
+    check_size = int(80 * scale)
+    check_font = get_font("Montserrat", check_size, bold=True)
+    check_text = "✓"
+    check_surf = check_font.render(check_text, True, (255, 255, 255))
+    check_alpha = alpha
+    check_surf.set_alpha(check_alpha)
+    screen.blit(check_surf, (WIDTH//2 - check_surf.get_width()//2, scaled_y + 40))
+    
+    # Texto "NOTA ACERTADA!"
+    success_text = "NOTA ACERTADA!"
+    success_font = FONT_TITLE
+    success_surf = success_font.render(success_text, True, (255, 255, 255))
+    success_shadow = success_font.render(success_text, True, (0, 0, 0))
+    
+    # Aplica alpha
+    success_surf_temp = pygame.Surface(success_surf.get_size(), pygame.SRCALPHA)
+    success_surf_temp.blit(success_shadow, (2, 2))
+    success_surf_temp.blit(success_surf, (0, 0))
+    success_surf_temp.set_alpha(check_alpha)
+    
+    screen.blit(success_surf_temp, (WIDTH//2 - success_surf.get_width()//2, scaled_y + 120))
+    
+    # Efeito de partículas/estrelas ao redor (opcional - adiciona mais dinamismo)
+    star_count = 12
+    for i in range(star_count):
+        angle = (i / star_count) * 2 * math.pi
+        radius = 100 + 30 * math.sin(pygame.time.get_ticks() * 0.005 + i)
+        star_x = WIDTH//2 + radius * math.cos(angle)
+        star_y = HEIGHT//2 + radius * math.sin(angle)
+        
+        star_size = int(15 * (1 + 0.5 * math.sin(pygame.time.get_ticks() * 0.01 + i)))
+        star_alpha = int(alpha * 0.7)
+        
+        star_surf = pygame.Surface((star_size * 2, star_size * 2), pygame.SRCALPHA)
+        pygame.draw.circle(star_surf, (255, 255, 255, star_alpha), (star_size, star_size), star_size)
+        screen.blit(star_surf, (star_x - star_size, star_y - star_size))
+
+def draw_guess_modal():
+    """Desenha o modal para adivinhar a música"""
+    global btn_modal_confirm, btn_modal_cancel
+    
+    # Overlay escuro semi-transparente
+    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 180))
+    screen.blit(overlay, (0, 0))
+    
+    # Card do modal centralizado
+    modal_width = 600
+    modal_height = 350
+    modal_x = (WIDTH - modal_width) // 2
+    modal_y = (HEIGHT - modal_height) // 2
+    
+    modal_rect = draw_card(screen, (modal_x, modal_y, modal_width, modal_height), BG_CARD, gradient=True)
+    
+    # Borda brilhante no modal
+    pygame.draw.rect(screen, ACCENT, modal_rect, width=3, border_radius=20)
+    
+    # Título do modal
+    title_text = FONT_TITLE.render("ADIVINHE A MÚSICA", True, ACCENT)
+    title_shadow = FONT_TITLE.render("ADIVINHE A MÚSICA", True, (0, 0, 0))
+    screen.blit(title_shadow, (modal_x + modal_width//2 - title_text.get_width()//2 + 2, modal_y + 30 + 2))
+    screen.blit(title_text, (modal_x + modal_width//2 - title_text.get_width()//2, modal_y + 30))
+    
+    # Subtítulo com dica
+    hint_text = FONT_SMALL.render("Digite o nome da música que você acha que é:", True, TEXT_SECONDARY)
+    screen.blit(hint_text, (modal_x + 40, modal_y + 90))
+    
+    # Campo de input no modal
+    input_y = modal_y + 130
+    input_width = modal_width - 80
+    input_height = 60
+    input_x = modal_x + 40
+    
+    input_rect = draw_card(screen, (input_x, input_y, input_width, input_height), BG_SURFACE, border_radius=15, gradient=True)
+    
+    # Borda pulsante quando ativo
+    if input_active:
+        pulse_time = pygame.time.get_ticks() * 0.01
+        pulse_width = int(2 + math.sin(pulse_time) * 1)
+        pygame.draw.rect(screen, ACCENT, input_rect, width=pulse_width, border_radius=15)
+    else:
+        pygame.draw.rect(screen, GRAY_700, input_rect, width=1, border_radius=15)
+    
+    # Texto do input
+    display_text = user_text if (input_active or user_text) else "Digite o nome da música..."
+    col = TEXT_PRIMARY if input_active else TEXT_SECONDARY
+    text_surf = FONT.render(display_text, True, col)
+    
+    # Limita o texto visível se for muito longo
+    max_width = input_width - 40
+    if text_surf.get_width() > max_width:
+        # Tenta renderizar com fonte menor
+        text_surf = FONT_SMALL.render(display_text, True, col)
+        if text_surf.get_width() > max_width:
+            # Se ainda for muito longo, trunca visualmente
+            display_text_short = display_text[:30] + "..."
+            text_surf = FONT_SMALL.render(display_text_short, True, col)
+    
+    screen.blit(text_surf, (input_rect.x + 20, input_rect.y + (input_height - text_surf.get_height()) // 2))
+    
+    # Indicador de cursor quando ativo
+    if input_active:
+        cursor_x = input_rect.x + 20 + text_surf.get_width() + 2
+        cursor_time = pygame.time.get_ticks() // 500  # Pisca a cada 500ms
+        if cursor_time % 2 == 0:
+            pygame.draw.line(screen, TEXT_PRIMARY, (cursor_x, input_rect.y + 15), (cursor_x, input_rect.y + input_height - 15), 2)
+    
+    # Botões do modal
+    btn_width = 200
+    btn_height = 55
+    btn_spacing = 30
+    
+    # Botão Confirmar
+    confirm_x = modal_x + (modal_width - (btn_width * 2 + btn_spacing)) // 2
+    confirm_y = modal_y + modal_height - 90
+    
+    btn_modal_confirm = Button("CONFIRMAR", (confirm_x, confirm_y, btn_width, btn_height), 
+                               color=SUCCESS, hover=SUCCESS_HOVER, font=FONT)
+    btn_modal_confirm.draw(screen)
+    
+    # Botão Cancelar
+    cancel_x = confirm_x + btn_width + btn_spacing
+    btn_modal_cancel = Button("CANCELAR", (cancel_x, confirm_y, btn_width, btn_height), 
+                              color=DANGER, hover=DANGER_HOVER, font=FONT)
+    btn_modal_cancel.draw(screen)
+    
+    # Informação sobre vidas e pontos
+    info_text = FONT_TINY.render(f"Acertar: +5 pontos | Errar: -1 vida", True, TEXT_SECONDARY)
+    screen.blit(info_text, (modal_x + modal_width//2 - info_text.get_width()//2, modal_y + modal_height - 35))
+    
+    return btn_modal_confirm, btn_modal_cancel
+
 def draw_play():
     # Background com gradiente roxo-azul
     purple_start = (60, 20, 80)  # Roxo escuro
     blue_end = (20, 40, 100)     # Azul escuro
     draw_gradient(screen, (0, 0, WIDTH, HEIGHT), purple_start, blue_end, vertical=True)
 
-    # Header com badges de status
-    header_y = 25
-    draw_badge(screen, f"Vidas: {lives}", (50, header_y, 140, 50), DANGER)
-    draw_badge(screen, f"Pontos: {score}", (210, header_y, 140, 50), ACCENT)
+    # Header fixo no topo - estilo game HUD
+    header_height = 80
+    header_surf = pygame.Surface((WIDTH, header_height), pygame.SRCALPHA)
+    
+    # Fundo do header com gradiente escuro
+    header_grad_start = (30, 20, 50)
+    header_grad_end = (20, 15, 35)
+    draw_gradient(header_surf, (0, 0, WIDTH, header_height), header_grad_start, header_grad_end, vertical=True)
+    
+    # Borda inferior brilhante
+    pygame.draw.line(header_surf, ACCENT, (0, header_height - 2), (WIDTH, header_height - 2), 2)
+    pygame.draw.line(header_surf, (ACCENT[0]//2, ACCENT[1]//2, ACCENT[2]//2), (0, header_height - 1), (WIDTH, header_height - 1), 1)
+    
+    # Linha divisória central decorativa
+    center_x = WIDTH // 2
+    pygame.draw.line(header_surf, GRAY_700, (center_x, 10), (center_x, header_height - 10), 1)
+    
+    screen.blit(header_surf, (0, 0))
+    
+    # Ícone musical decorativo no centro do header
+    music_icon = "♪"
+    icon_font = get_font("Montserrat", 40, bold=True)
+    icon_surf = icon_font.render(music_icon, True, ACCENT)
+    screen.blit(icon_surf, (center_x - icon_surf.get_width()//2, 20))
+    
+    # Barra de progresso do jogo (notas reveladas)
+    if current_song_seq:
+        progress_y = 70
+        progress_width = WIDTH - 100
+        progress_height = 8
+        progress_x = 50
+        
+        # Fundo da barra
+        progress_bg_rect = pygame.Rect(progress_x, progress_y, progress_width, progress_height)
+        pygame.draw.rect(screen, GRAY_700, progress_bg_rect, border_radius=4)
+        
+        # Barra de progresso preenchida
+        total_notes = len(current_song_seq)
+        progress = current_index / total_notes if total_notes > 0 else 0
+        progress_fill_width = int(progress_width * progress)
+        progress_fill_rect = pygame.Rect(progress_x, progress_y, progress_fill_width, progress_height)
+        
+        # Preenche a barra com gradiente
+        if progress_fill_width > 0:
+            progress_color = SUCCESS if progress >= 1.0 else ACCENT
+            draw_gradient(screen, progress_fill_rect, progress_color, 
+                         tuple(min(255, c + 30) for c in progress_color), vertical=False)
+        
+        # Borda brilhante na barra
+        pygame.draw.rect(screen, ACCENT, progress_bg_rect, width=1, border_radius=4)
+        
+        # Texto de progresso
+        progress_text = f"{current_index}/{total_notes}"
+        progress_label = FONT_TINY.render(progress_text, True, TEXT_SECONDARY)
+        screen.blit(progress_label, (progress_x + progress_width - progress_label.get_width(), progress_y - 18))
 
-    # Card principal de informações com gradiente
+    # Pontuação grande no topo esquerdo - estilo game HUD
+    score_label = FONT_SMALL.render("PONTUAÇÃO", True, TEXT_SECONDARY)
+    screen.blit(score_label, (30, 10))
+    score_text = FONT_TITLE.render(f"{score}", True, (255, 215, 0))  # Dourado para destacar
+    # Sombra do texto de pontuação para efeito 3D
+    shadow_score = FONT_TITLE.render(f"{score}", True, (0, 0, 0))
+    screen.blit(shadow_score, (32, 37))
+    screen.blit(score_text, (30, 35))
+    # Brilho dourado sutil ao redor da pontuação
+    glow_rect = pygame.Rect(25, 30, score_text.get_width() + 10, score_text.get_height() + 10)
+    glow_surf = pygame.Surface((glow_rect.w, glow_rect.h), pygame.SRCALPHA)
+    pygame.draw.rect(glow_surf, (255, 215, 0, 50), glow_surf.get_rect(), width=2, border_radius=5)
+    screen.blit(glow_surf, glow_rect.topleft)
+    
+    # Vidas no topo direito - com ícones de coração
+    hearts_x = WIDTH - 250
+    hearts_y = 25
+    lives_label = FONT_SMALL.render("VIDAS", True, TEXT_SECONDARY)
+    screen.blit(lives_label, (hearts_x, 15))
+    
+    # Desenha corações para cada vida - estilo game
+    heart_size = 28
+    for i in range(3):
+        heart_x = hearts_x + (i * (heart_size + 15))
+        heart_color = DANGER if i < lives else GRAY_600
+        # Desenha coração estilo game (mais arredondado)
+        heart_center_x = heart_x + heart_size//2
+        heart_center_y = hearts_y + 15
+        
+        # Desenha dois círculos para formar o topo do coração
+        top_radius = heart_size // 4
+        pygame.draw.circle(screen, heart_color, (heart_center_x - top_radius//2, heart_center_y - top_radius//2), top_radius)
+        pygame.draw.circle(screen, heart_color, (heart_center_x + top_radius//2, heart_center_y - top_radius//2), top_radius)
+        
+        # Desenha triângulo para a parte inferior do coração
+        heart_points = [
+            (heart_center_x, heart_center_y + top_radius),
+            (heart_center_x - top_radius * 1.5, heart_center_y),
+            (heart_center_x + top_radius * 1.5, heart_center_y),
+        ]
+        pygame.draw.polygon(screen, heart_color, heart_points)
+        
+        # Sombra interna para dar profundidade
+        if i < lives:
+            inner_color = tuple(min(255, c + 40) for c in heart_color)
+            pygame.draw.circle(screen, inner_color, (heart_center_x - top_radius//2 + 2, heart_center_y - top_radius//2 - 2), top_radius - 2)
+            pygame.draw.circle(screen, inner_color, (heart_center_x + top_radius//2 - 2, heart_center_y - top_radius//2 - 2), top_radius - 2)
+    
+    # Texto de vidas também
+    lives_text = FONT_HEADING.render(f"x{lives}", True, DANGER if lives > 0 else GRAY_600)
+    screen.blit(lives_text, (hearts_x + 110, hearts_y + 5))
+
+    # Card principal de informações com gradiente e borda destacada (estilo game)
     card_main = draw_card(screen, (50, 100, WIDTH-100, 150), BG_CARD, gradient=True)
+    # Borda brilhante no card principal
+    pygame.draw.rect(screen, ACCENT, card_main, width=2, border_radius=20)
 
-    # Música (oculta ou revelada)
+    # Música (oculta ou revelada) - estilo game
     nome_show = current_song_data.nome if state == 'gameover' else '???'
-    music_label = FONT_SMALL.render("Música:", True, TEXT_SECONDARY)
-    music_name = FONT_HEADING.render(nome_show, True, ACCENT)
+    music_label = FONT_SMALL.render("MÚSICA", True, TEXT_SECONDARY)
+    music_name_color = ACCENT if state == 'gameover' else WARNING
+    music_name = FONT_HEADING.render(nome_show, True, music_name_color)
+    # Sombra no nome da música para efeito 3D
+    shadow_music = FONT_HEADING.render(nome_show, True, (0, 0, 0))
+    screen.blit(shadow_music, (card_main.x + 32, card_main.y + 52))
     screen.blit(music_label, (card_main.x + 30, card_main.y + 25))
     screen.blit(music_name, (card_main.x + 30, card_main.y + 50))
 
-    # Notas liberadas
+    # Notas liberadas - estilo game badge
     displayed = [n[0] for n in current_song_seq[:current_index]]
     txt = " • ".join(displayed) if displayed else "Nenhuma nota revelada ainda"
-    notes_label = FONT_SMALL.render("Notas reveladas:", True, TEXT_SECONDARY)
-    notes_text = FONT.render(txt, True, TEXT_PRIMARY)
+    notes_label = FONT_SMALL.render("NOTAS REVELADAS", True, TEXT_SECONDARY)
+    notes_text = FONT.render(txt, True, SUCCESS if displayed else TEXT_SECONDARY)
     screen.blit(notes_label, (card_main.x + 30, card_main.y + 95))
-    screen.blit(notes_text, (card_main.x + 30, card_main.y + 120))
+    # Badge para notas reveladas
+    notes_badge_rect = pygame.Rect(card_main.x + 30, card_main.y + 120, len(txt) * 12 + 20, 30)
+    draw_card(screen, notes_badge_rect, BG_SURFACE, border_radius=15)
+    screen.blit(notes_text, (notes_badge_rect.x + 10, notes_badge_rect.y + 5))
 
-    # Próxima nota (se houver)
+    # Próxima nota (se houver) - card destacado estilo game
     global play_here_button
     if current_index < len(current_song_seq):
         card_next = draw_card(screen, (400, 100, 550, 150), BG_SURFACE, gradient=True)
-        next_label = FONT_SMALL.render("Próxima Nota:", True, TEXT_SECONDARY)
+        # Borda pulsante na próxima nota
+        pulse_time = pygame.time.get_ticks() * 0.005
+        pulse_intensity = 0.7 + 0.3 * math.sin(pulse_time)
+        border_color_pulse = tuple(int(c * pulse_intensity) for c in WARNING)
+        pygame.draw.rect(screen, border_color_pulse, card_next, width=3, border_radius=20)
+        
+        next_label = FONT_SMALL.render("PRÓXIMA NOTA", True, TEXT_SECONDARY)
         next_value = FONT_TITLE.render("?", True, WARNING)
+        # Sombra na interrogação
+        shadow_next = FONT_TITLE.render("?", True, (0, 0, 0))
+        screen.blit(shadow_next, (card_next.x + 32, card_next.y + 52))
         screen.blit(next_label, (card_next.x + 30, card_next.y + 25))
         screen.blit(next_value, (card_next.x + 30, card_next.y + 50))
 
+        btn_play_here = Button("Ouvir", (card_next.x + 200, card_next.y + 60, 150, 50), color=WARNING, font=FONT_SMALL)
+        btn_play_here.draw(screen)
+        play_here_button = btn_play_here
+
+    # Botões de ação - estilo game com ícones
     # Botões de ação
     btn_repeat.draw(screen)
     btn_action_sing.draw(screen)
     btn_guess.draw(screen)
 
-    # Campo de input melhorado
-    input_y = 540
-    input_label = FONT_SMALL.render("Adivinhe a música:", True, TEXT_SECONDARY)
-    screen.blit(input_label, (400, input_y - 25))
+    # Desenha o modal de adivinhar música se estiver aberto
+    global btn_modal_confirm, btn_modal_cancel
+    if guess_modal_open:
+        btn_modal_confirm, btn_modal_cancel = draw_guess_modal()
 
-    input_rect = draw_card(screen, (400, input_y, 540, 55), BG_SURFACE, border_radius=20, gradient=True)
-    if input_active:
-        # Borda muito mais sutil e minimalista
-        pygame.draw.rect(screen, ACCENT, input_rect, width=1, border_radius=20)
-
-    display_text = user_text if (input_active or user_text) else "Digite aqui..."
-    col = TEXT_PRIMARY if input_active else TEXT_SECONDARY
-    text_surf = FONT.render(display_text, True, col)
-    screen.blit(text_surf, (input_rect.x + 20, input_rect.y + 15))
-
-    # Mensagem de feedback
+    # Mensagem de feedback - estilo game notification
     if message:
+        msg_color = WARNING if "tempo" in message.lower() else SUCCESS if "acertou" in message.lower() or "perfeito" in message.lower() else DANGER if "errou" in message.lower() else TEXT_PRIMARY
+        # Card de notificação
+        msg_surf = FONT.render(message, True, msg_color)
+        msg_card_rect = pygame.Rect(50, HEIGHT - 80, msg_surf.get_width() + 40, 50)
+        msg_bg_color = BG_CARD
+        msg_bg_alpha = 200
+        if "acertou" in message.lower() or "perfeito" in message.lower():
+            msg_bg_color = tuple(min(255, c + 30) for c in SUCCESS)
+        elif "errou" in message.lower():
+            msg_bg_color = tuple(min(255, c + 30) for c in DANGER)
+        elif "tempo" in message.lower():
+            msg_bg_color = tuple(min(255, c + 30) for c in WARNING)
+        
+        msg_card_surf = pygame.Surface((msg_card_rect.w, msg_card_rect.h), pygame.SRCALPHA)
+        # Aplica alpha ao fundo
+        bg_with_alpha = (*msg_bg_color, msg_bg_alpha)
+        pygame.draw.rect(msg_card_surf, bg_with_alpha, msg_card_surf.get_rect(), border_radius=15)
+        pygame.draw.rect(msg_card_surf, (*msg_color, 255), msg_card_surf.get_rect(), width=2, border_radius=15)
+        screen.blit(msg_card_surf, msg_card_rect.topleft)
+        screen.blit(msg_surf, (msg_card_rect.x + 20, msg_card_rect.y + 10))
         msg_color = WARNING if "tempo" in message.lower() else SUCCESS if "acertou" in message.lower() else TEXT_PRIMARY
         msg_surf = FONT_SMALL.render(message, True, msg_color)
         screen.blit(msg_surf, (200, HEIGHT - 50))
 
     # Botão para retornar ao menu
     btn_menu.draw(screen)
+    
+    # Desenha a animação de sucesso se ativa
+    draw_success_animation()
 
 def draw_detector():
     purple_start = (60, 20, 80)
@@ -1072,11 +1414,69 @@ while running:
                 message = "Clique em Gravar e segure a nota por 1s."
 
             if btn_guess.clicked(event):
+                guess_modal_open = True
                 input_active = True
                 user_text = ""
 
-            if event.type == pygame.KEYDOWN and input_active:
-                if event.key == pygame.K_RETURN:
+            # Processa eventos do modal de adivinhar música
+            if guess_modal_open:
+                # Fecha o modal se clicar fora dele (no overlay)
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    modal_width = 600
+                    modal_height = 350
+                    modal_x = (WIDTH - modal_width) // 2
+                    modal_y = (HEIGHT - modal_height) // 2
+                    modal_rect = pygame.Rect(modal_x, modal_y, modal_width, modal_height)
+                    if not modal_rect.collidepoint(event.pos):
+                        # Clicou fora do modal, fecha
+                        guess_modal_open = False
+                        input_active = False
+                        user_text = ""
+                
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        # Fecha o modal ao pressionar ESC
+                        guess_modal_open = False
+                        input_active = False
+                        user_text = ""
+                    elif event.key == pygame.K_RETURN:
+                        # Processa o palpite ao pressionar ENTER
+                        guess = user_text.strip()
+                        real = current_song_data.nome or ""
+
+                        if is_similar_enough(guess, real):
+                            score += 5
+                            similarity = calculate_similarity(guess, real)
+
+                            # Mensagem diferente se acertou exatamente ou com pequenos erros
+                            if similarity == 1.0:
+                                message = f"✓ PERFEITO: {current_song_data.nome}!"
+                            else:
+                                message = f"✓ ACERTOU: {current_song_data.nome}!"
+
+                            start_round()
+                            if current_song_seq:
+                                n = current_song_seq[0]
+                                threading.Thread(target=play_note, args=(NOTE_FREQS[n[0]], n[1]), daemon=True).start()
+                        else:
+                            lives -= 1
+                            similarity = calculate_similarity(guess, real)
+                            message = f"✗ Errou! Era '{current_song_data.nome}'. Vidas: {lives}"
+                            if lives <= 0:
+                                state = 'gameover'
+                        
+                        user_text = ""
+                        input_active = False
+                        guess_modal_open = False
+                    elif event.key == pygame.K_BACKSPACE:
+                        user_text = user_text[:-1]
+                    else:
+                        if len(user_text) < 40: 
+                            user_text += event.unicode
+                
+                # Verifica cliques nos botões do modal
+                if btn_modal_confirm and btn_modal_confirm.clicked(event):
+                    # Processa o palpite
                     guess = user_text.strip()
                     real = current_song_data.nome or ""
 
@@ -1084,7 +1484,6 @@ while running:
                         score += 5
                         similarity = calculate_similarity(guess, real)
 
-                        # Mensagem diferente se acertou exatamente ou com pequenos erros
                         if similarity == 1.0:
                             message = f"✓ PERFEITO: {current_song_data.nome}!"
                         else:
@@ -1100,12 +1499,17 @@ while running:
                         message = f"✗ Errou! Vidas: {lives}"
                         if lives <= 0:
                             state = 'gameover'
+                    
                     user_text = ""
                     input_active = False
-                elif event.key == pygame.K_BACKSPACE:
-                    user_text = user_text[:-1]
-                else:
-                    if len(user_text) < 40: user_text += event.unicode
+                    guess_modal_open = False
+                
+                if btn_modal_cancel and btn_modal_cancel.clicked(event):
+                    # Fecha o modal sem processar
+                    guess_modal_open = False
+                    input_active = False
+                    user_text = ""
+
 
         elif state == 'detector':
             if btn_back.clicked(event):
@@ -1128,6 +1532,10 @@ while running:
 
             if btn_skip_confirm.clicked(event):
                 if detector_result is True:
+                    # Ativa a animação de sucesso
+                    show_success_animation = True
+                    success_animation_start_time = pygame.time.get_ticks()
+                    
                     current_index += 1
                     message = "Nota desbloqueada!"
                     state = 'play'
@@ -1135,7 +1543,26 @@ while running:
                     message = "Segure a nota por 1s até aparecer ACERTOU."
 
         elif state == 'gameover':
-            if btn_back.clicked(event):
+            # Calcula as mesmas coordenadas usadas no desenho
+            card_y = HEIGHT//2 - 250
+            btn_y1 = card_y + 390
+            btn_y2 = card_y + 465
+            
+            # Verifica cliques nos botões do game over
+            btn_play_again = Button("JOGAR NOVAMENTE", (WIDTH//2 - 150, btn_y1, 300, 60), 
+                                   color=SUCCESS, hover=SUCCESS_HOVER, font=FONT_HEADING)
+            btn_menu_gameover = Button("MENU PRINCIPAL", (WIDTH//2 - 150, btn_y2, 300, 60), 
+                                      color=ACCENT, hover=ACCENT_HOVER, font=FONT_HEADING)
+            
+            if btn_play_again.clicked(event):
+                lives = 3
+                score = 0
+                start_round()
+                if current_song_seq:
+                    primeira_nota = current_song_seq[0]
+                    threading.Thread(target=play_note, args=(NOTE_FREQS[primeira_nota[0]], primeira_nota[1]), daemon=True).start()
+                state = 'play'
+            if btn_menu_gameover.clicked(event):
                 state = 'menu'
 
     if state == 'menu': draw_menu()
@@ -1150,27 +1577,53 @@ while running:
         draw_gradient(screen, (0, 0, WIDTH, HEIGHT), purple_start, blue_end, vertical=True)
 
         # Card central de game over com gradiente
-        card = draw_card(screen, (WIDTH//2 - 300, HEIGHT//2 - 200, 600, 400), BG_CARD, gradient=True)
+        card = draw_card(screen, (WIDTH//2 - 300, HEIGHT//2 - 250, 600, 500), BG_CARD, gradient=True)
+        
+        # Borda brilhante no card
+        pygame.draw.rect(screen, DANGER, card, width=3, border_radius=20)
 
-        # Título
+        # Título com sombra
         title_surf = FONT_TITLE.render("FIM DE JOGO", True, DANGER)
+        title_shadow = FONT_TITLE.render("FIM DE JOGO", True, (0, 0, 0))
+        screen.blit(title_shadow, (WIDTH//2 - title_surf.get_width()//2 + 2, card.y + 52))
         screen.blit(title_surf, (WIDTH//2 - title_surf.get_width()//2, card.y + 50))
 
-        # Pontuação com destaque
-        score_label = FONT_SMALL.render("Pontuação Final", True, TEXT_SECONDARY)
-        screen.blit(score_label, (WIDTH//2 - score_label.get_width()//2, card.y + 140))
+        # Pontuação com destaque - estilo game
+        score_label = FONT_SMALL.render("PONTUAÇÃO FINAL", True, TEXT_SECONDARY)
+        screen.blit(score_label, (WIDTH//2 - score_label.get_width()//2, card.y + 130))
 
-        score_surf = FONT_TITLE.render(f"{score}", True, ACCENT)
-        screen.blit(score_surf, (WIDTH//2 - score_surf.get_width()//2, card.y + 170))
+        # Card para pontuação
+        score_card = draw_card(screen, (WIDTH//2 - 150, card.y + 160, 300, 80), BG_SURFACE, border_radius=15, gradient=True)
+        pygame.draw.rect(screen, (255, 215, 0), score_card, width=2, border_radius=15)
+        
+        score_surf = FONT_TITLE.render(f"{score}", True, (255, 215, 0))  # Dourado
+        score_shadow = FONT_TITLE.render(f"{score}", True, (0, 0, 0))
+        screen.blit(score_shadow, (WIDTH//2 - score_surf.get_width()//2 + 2, card.y + 187))
+        screen.blit(score_surf, (WIDTH//2 - score_surf.get_width()//2, card.y + 185))
+        
+        # Pontos ou Ponto (singular/plural)
+        pontos_text = "pontos" if score != 1 else "ponto"
+        pontos_surf = FONT_SMALL.render(pontos_text, True, TEXT_SECONDARY)
+        screen.blit(pontos_surf, (WIDTH//2 - pontos_surf.get_width()//2, card.y + 245))
 
         # Música revelada
         music_name = current_song_data.nome if current_song_data else "Desconhecida"
-        music_label = FONT_SMALL.render("A música era:", True, TEXT_SECONDARY)
+        music_label = FONT_SMALL.render("A MÚSICA ERA", True, TEXT_SECONDARY)
+        screen.blit(music_label, (WIDTH//2 - music_label.get_width()//2, card.y + 280))
+        
+        # Card para nome da música
+        music_card = draw_card(screen, (WIDTH//2 - 200, card.y + 310, 400, 50), BG_SURFACE, border_radius=15)
         music_surf = FONT_HEADING.render(music_name, True, WARNING)
-        screen.blit(music_label, (WIDTH//2 - music_label.get_width()//2, card.y + 250))
-        screen.blit(music_surf, (WIDTH//2 - music_surf.get_width()//2, card.y + 280))
+        screen.blit(music_surf, (WIDTH//2 - music_surf.get_width()//2, card.y + 320))
 
-        btn_back.draw(screen)
+        # Botões de ação - estilo game
+        btn_play_again = Button("JOGAR NOVAMENTE", (WIDTH//2 - 150, card.y + 390, 300, 60), 
+                               color=SUCCESS, hover=SUCCESS_HOVER, font=FONT_HEADING)
+        btn_menu_gameover = Button("MENU PRINCIPAL", (WIDTH//2 - 150, card.y + 465, 300, 60), 
+                                  color=ACCENT, hover=ACCENT_HOVER, font=FONT_HEADING)
+        
+        btn_play_again.draw(screen)
+        btn_menu_gameover.draw(screen)
 
     pygame.display.flip()
     CLOCK.tick(30)
