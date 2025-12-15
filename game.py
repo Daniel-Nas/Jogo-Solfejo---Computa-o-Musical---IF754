@@ -640,9 +640,19 @@ btn_modal_confirm = None
 btn_modal_cancel = None
 
 
-def start_round():
+def start_round(force_new=False):
     global current_song_data, current_song_seq, current_index, message, played_notes, played_past_notes
-    current_song_data = random.choice(BIBLIOTECA)
+    
+    # Se force_new=True, escolhe uma música diferente da atual
+    if force_new and current_song_data and len(BIBLIOTECA) > 1:
+        nova_musica = random.choice(BIBLIOTECA)
+        # Continua escolhendo até encontrar uma música diferente
+        while nova_musica == current_song_data:
+            nova_musica = random.choice(BIBLIOTECA)
+        current_song_data = nova_musica
+    else:
+        current_song_data = random.choice(BIBLIOTECA)
+    
     current_song_seq = current_song_data.notas 
     current_index = 0
     played_notes = []
@@ -1264,7 +1274,6 @@ def draw_play():
         screen.blit(msg_surf, (msg_card_rect.x + 20, msg_card_rect.y + 10))
         msg_color = WARNING if "tempo" in message.lower() else SUCCESS if "acertou" in message.lower() else TEXT_PRIMARY
         msg_surf = FONT_SMALL.render(message, True, msg_color)
-        screen.blit(msg_surf, (200, HEIGHT - 50))
 
     # Botão para retornar ao menu
     btn_menu.draw(screen)
@@ -1416,7 +1425,8 @@ while running:
             if btn_guess.clicked(event):
                 guess_modal_open = True
                 input_active = True
-                user_text = ""
+                user_text = ""  # Limpa o texto anterior
+                continue  # Pula o processamento de eventos neste frame para evitar conflitos
 
             # Processa eventos do modal de adivinhar música
             if guess_modal_open:
@@ -1442,6 +1452,12 @@ while running:
                     elif event.key == pygame.K_RETURN:
                         # Processa o palpite ao pressionar ENTER
                         guess = user_text.strip()
+                        
+                        # Não processa se o palpite estiver vazio
+                        if not guess:
+                            message = "⚠ Digite o nome da música antes de confirmar!"
+                            continue
+                        
                         real = current_song_data.nome or ""
 
                         if is_similar_enough(guess, real):
@@ -1478,6 +1494,12 @@ while running:
                 if btn_modal_confirm and btn_modal_confirm.clicked(event):
                     # Processa o palpite
                     guess = user_text.strip()
+                    
+                    # Não processa se o palpite estiver vazio
+                    if not guess:
+                        message = "⚠ Digite o nome da música antes de confirmar!"
+                        continue
+                    
                     real = current_song_data.nome or ""
 
                     if is_similar_enough(guess, real):
@@ -1557,7 +1579,7 @@ while running:
             if btn_play_again.clicked(event):
                 lives = 3
                 score = 0
-                start_round()
+                start_round(force_new=True)  # Força escolher uma música diferente
                 if current_song_seq:
                     primeira_nota = current_song_seq[0]
                     threading.Thread(target=play_note, args=(NOTE_FREQS[primeira_nota[0]], primeira_nota[1]), daemon=True).start()
