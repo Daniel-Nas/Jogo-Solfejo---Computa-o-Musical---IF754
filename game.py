@@ -618,6 +618,13 @@ show_success_animation = False
 success_animation_start_time = 0
 SUCCESS_ANIMATION_DURATION = 2.0  # Duração em segundos
 
+# Animações de acerto/erro de música
+show_music_success_animation = False
+show_music_error_animation = False
+music_animation_start_time = 0
+MUSIC_ANIMATION_DURATION = 2.5  # Duração em segundos
+music_animation_message = ""
+
 btn_start = Button("INICIAR", (WIDTH//2 - 160, 220, 320, 70), color=ACCENT, font=FONT_HEADING)
 btn_rules = Button("REGRAS", (WIDTH//2 - 160, 310, 320, 60), color=(100, 70, 150), hover=(120, 90, 170), font=FONT)
 btn_conf = Button("CONFIGURAÇÕES", (WIDTH//2 - 160, 390, 320, 60), color=(100, 70, 150), hover=(120, 90, 170), font=FONT)
@@ -985,6 +992,264 @@ def draw_success_animation():
         pygame.draw.circle(star_surf, (255, 255, 255, star_alpha), (star_size, star_size), star_size)
         screen.blit(star_surf, (star_x - star_size, star_y - star_size))
 
+def draw_music_success_animation():
+    """Desenha uma animação visual quando o jogador acerta a música"""
+    global show_music_success_animation, music_animation_start_time, music_animation_message
+    
+    if not show_music_success_animation:
+        return
+    
+    # Calcula o tempo decorrido desde o início da animação (em milissegundos)
+    current_time = pygame.time.get_ticks()
+    elapsed_ms = current_time - music_animation_start_time
+    elapsed = elapsed_ms / 1000.0  # Converte para segundos
+    
+    # Se passou o tempo, desativa a animação
+    if elapsed >= MUSIC_ANIMATION_DURATION:
+        show_music_success_animation = False
+        return
+    
+    # Calcula a opacidade com fade in suave no início e fade out no final
+    fade_in_duration = 0.3  # Fade in nos primeiros 0.3 segundos
+    fade_out_duration = 0.6  # Fade out nos últimos 0.6 segundos
+    fade_out_start = MUSIC_ANIMATION_DURATION - fade_out_duration
+    
+    if elapsed < fade_in_duration:
+        # Fade in suave (ease out)
+        t = elapsed / fade_in_duration
+        t = 1 - (1 - t) ** 2  # Ease out quadrático
+        alpha = int(255 * t)
+    elif elapsed > fade_out_start:
+        # Fade out suave (ease in)
+        t = (elapsed - fade_out_start) / fade_out_duration
+        t = t ** 2  # Ease in quadrático
+        alpha = int(255 * (1 - t))
+    else:
+        alpha = 255
+    
+    # Calcula o tamanho pulsante da animação (mais suave)
+    pulse_speed = 0.008  # Reduzido de 0.015 para mais suave
+    pulse = 1.0 + math.sin(pygame.time.get_ticks() * pulse_speed) * 0.08  # Reduzido de 0.15 para 0.08
+    
+    # Overlay semi-transparente verde/azul
+    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    overlay_alpha = int(40 * (alpha / 255))
+    overlay.fill((50, 200, 150, overlay_alpha))
+    screen.blit(overlay, (0, 0))
+    
+    # Card central com mensagem de sucesso
+    card_width = 600
+    card_height = 300
+    card_x = (WIDTH - card_width) // 2
+    card_y = (HEIGHT - card_height) // 2
+    
+    # Efeito de escala com zoom in suave no início
+    zoom_in_duration = 0.4  # Duração do zoom in
+    if elapsed < zoom_in_duration:
+        # Zoom in suave (ease out)
+        t = elapsed / zoom_in_duration
+        t = 1 - (1 - t) ** 3  # Ease out cúbico
+        initial_scale = 0.7 + (1.0 - 0.7) * t
+        scale = initial_scale + (pulse - 1.0) * 0.3  # Combina zoom in com pulso
+    else:
+        scale = pulse
+    
+    scaled_width = int(card_width * scale)
+    scaled_height = int(card_height * scale)
+    scaled_x = (WIDTH - scaled_width) // 2
+    scaled_y = (HEIGHT - scaled_height) // 2
+    
+    # Card com gradiente verde/azul brilhante
+    card_surf = pygame.Surface((scaled_width, scaled_height), pygame.SRCALPHA)
+    card_rect = pygame.Rect(0, 0, scaled_width, scaled_height)
+    
+    # Gradiente verde/azul brilhante
+    color_start = (60, 255, 180)
+    color_end = (80, 220, 150)
+    draw_gradient(card_surf, card_rect, color_start, color_end, vertical=True)
+    
+    # Borda brilhante
+    pygame.draw.rect(card_surf, (100, 255, 200, alpha), card_rect, width=5, border_radius=30)
+    
+    card_surf.set_alpha(alpha)
+    screen.blit(card_surf, (scaled_x, scaled_y))
+    
+    # Ícone de check/certo grande
+    check_size = int(100 * scale)
+    check_font = get_font("Montserrat", check_size, bold=True)
+    check_text = "✓"
+    check_surf = check_font.render(check_text, True, (255, 255, 255))
+    check_alpha = alpha
+    check_surf.set_alpha(check_alpha)
+    screen.blit(check_surf, (WIDTH//2 - check_surf.get_width()//2, scaled_y + 30))
+    
+    # Texto da mensagem (suporta múltiplas linhas)
+    success_text = music_animation_message if music_animation_message else "MÚSICA ACERTADA!"
+    success_font = FONT_TITLE
+    lines = success_text.split('\n')
+    total_height = len(lines) * success_font.get_height()
+    start_y = scaled_y + 150
+    
+    for i, line in enumerate(lines):
+        if line.strip():
+            success_surf = success_font.render(line, True, (255, 255, 255))
+            success_shadow = success_font.render(line, True, (0, 0, 0))
+            
+            # Aplica alpha
+            success_surf_temp = pygame.Surface(success_surf.get_size(), pygame.SRCALPHA)
+            success_surf_temp.blit(success_shadow, (3, 3))
+            success_surf_temp.blit(success_surf, (0, 0))
+            success_surf_temp.set_alpha(check_alpha)
+            
+            screen.blit(success_surf_temp, (WIDTH//2 - success_surf.get_width()//2, start_y + i * success_font.get_height()))
+    
+    # Efeito de partículas/estrelas ao redor (mais suave)
+    star_count = 16
+    time_factor = pygame.time.get_ticks() * 0.001  # Mais suave
+    for i in range(star_count):
+        angle = (i / star_count) * 2 * math.pi
+        # Movimento mais suave e lento
+        radius = 120 + 30 * math.sin(time_factor * 0.8 + i * 0.5)
+        star_x = WIDTH//2 + radius * math.cos(angle)
+        star_y = HEIGHT//2 + radius * math.sin(angle)
+        
+        # Tamanho pulsante mais suave
+        star_size = int(16 * (1 + 0.4 * math.sin(time_factor * 1.2 + i * 0.7)))
+        star_alpha = int(alpha * 0.7)  # Mais transparente
+        
+        star_surf = pygame.Surface((star_size * 2, star_size * 2), pygame.SRCALPHA)
+        pygame.draw.circle(star_surf, (255, 255, 255, star_alpha), (star_size, star_size), star_size)
+        screen.blit(star_surf, (star_x - star_size, star_y - star_size))
+
+def draw_music_error_animation():
+    """Desenha uma animação visual quando o jogador erra a música"""
+    global show_music_error_animation, music_animation_start_time, music_animation_message
+    
+    if not show_music_error_animation:
+        return
+    
+    # Calcula o tempo decorrido desde o início da animação (em milissegundos)
+    current_time = pygame.time.get_ticks()
+    elapsed_ms = current_time - music_animation_start_time
+    elapsed = elapsed_ms / 1000.0  # Converte para segundos
+    
+    # Se passou o tempo, desativa a animação
+    if elapsed >= MUSIC_ANIMATION_DURATION:
+        show_music_error_animation = False
+        return
+    
+    # Calcula a opacidade com fade in suave no início e fade out no final
+    fade_in_duration = 0.3  # Fade in nos primeiros 0.3 segundos
+    fade_out_duration = 0.6  # Fade out nos últimos 0.6 segundos
+    fade_out_start = MUSIC_ANIMATION_DURATION - fade_out_duration
+    
+    if elapsed < fade_in_duration:
+        # Fade in suave (ease out)
+        t = elapsed / fade_in_duration
+        t = 1 - (1 - t) ** 2  # Ease out quadrático
+        alpha = int(255 * t)
+    elif elapsed > fade_out_start:
+        # Fade out suave (ease in)
+        t = (elapsed - fade_out_start) / fade_out_duration
+        t = t ** 2  # Ease in quadrático
+        alpha = int(255 * (1 - t))
+    else:
+        alpha = 255
+    
+    # Calcula o tamanho pulsante da animação (mais suave)
+    pulse_speed = 0.012  # Reduzido de 0.025 para mais suave
+    pulse = 1.0 + math.sin(pygame.time.get_ticks() * pulse_speed) * 0.06  # Reduzido de 0.1 para 0.06
+    
+    # Overlay semi-transparente vermelho/rosa
+    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    overlay_alpha = int(35 * (alpha / 255))
+    overlay.fill((200, 50, 80, overlay_alpha))
+    screen.blit(overlay, (0, 0))
+    
+    # Card central com mensagem de erro
+    card_width = 600
+    card_height = 300
+    card_x = (WIDTH - card_width) // 2
+    card_y = (HEIGHT - card_height) // 2
+    
+    # Efeito de escala com zoom in suave no início
+    zoom_in_duration = 0.4  # Duração do zoom in
+    if elapsed < zoom_in_duration:
+        # Zoom in suave (ease out)
+        t = elapsed / zoom_in_duration
+        t = 1 - (1 - t) ** 3  # Ease out cúbico
+        initial_scale = 0.7 + (1.0 - 0.7) * t
+        scale = initial_scale + (pulse - 1.0) * 0.2  # Combina zoom in com pulso (mais sutil)
+    else:
+        scale = pulse
+    
+    scaled_width = int(card_width * scale)
+    scaled_height = int(card_height * scale)
+    scaled_x = (WIDTH - scaled_width) // 2
+    scaled_y = (HEIGHT - scaled_height) // 2
+    
+    # Card com gradiente vermelho/rosa
+    card_surf = pygame.Surface((scaled_width, scaled_height), pygame.SRCALPHA)
+    card_rect = pygame.Rect(0, 0, scaled_width, scaled_height)
+    
+    # Gradiente vermelho/rosa
+    color_start = (220, 60, 100)
+    color_end = (200, 40, 80)
+    draw_gradient(card_surf, card_rect, color_start, color_end, vertical=True)
+    
+    # Borda brilhante
+    pygame.draw.rect(card_surf, (255, 100, 120, alpha), card_rect, width=5, border_radius=30)
+    
+    card_surf.set_alpha(alpha)
+    screen.blit(card_surf, (scaled_x, scaled_y))
+    
+    # Ícone de X/erro grande
+    error_size = int(100 * scale)
+    error_font = get_font("Montserrat", error_size, bold=True)
+    error_text = "✗"
+    error_surf = error_font.render(error_text, True, (255, 255, 255))
+    error_alpha = alpha
+    error_surf.set_alpha(error_alpha)
+    screen.blit(error_surf, (WIDTH//2 - error_surf.get_width()//2, scaled_y + 30))
+    
+    # Texto da mensagem (suporta múltiplas linhas)
+    error_text_msg = music_animation_message if music_animation_message else "MÚSICA ERRADA!"
+    error_font_text = FONT_TITLE
+    lines = error_text_msg.split('\n')
+    total_height = len(lines) * error_font_text.get_height()
+    start_y = scaled_y + 150
+    
+    for i, line in enumerate(lines):
+        if line.strip():
+            error_surf_text = error_font_text.render(line, True, (255, 255, 255))
+            error_shadow = error_font_text.render(line, True, (0, 0, 0))
+            
+            # Aplica alpha
+            error_surf_temp = pygame.Surface(error_surf_text.get_size(), pygame.SRCALPHA)
+            error_surf_temp.blit(error_shadow, (3, 3))
+            error_surf_temp.blit(error_surf_text, (0, 0))
+            error_surf_temp.set_alpha(error_alpha)
+            
+            screen.blit(error_surf_temp, (WIDTH//2 - error_surf_text.get_width()//2, start_y + i * error_font_text.get_height()))
+    
+    # Efeito de ondas/choque ao redor (mais suave)
+    wave_count = 8
+    time_factor = pygame.time.get_ticks() * 0.001  # Mais suave
+    for i in range(wave_count):
+        angle = (i / wave_count) * 2 * math.pi
+        # Movimento mais suave e lento
+        radius = 100 + 25 * math.sin(time_factor * 0.7 + i * 0.6)
+        wave_x = WIDTH//2 + radius * math.cos(angle)
+        wave_y = HEIGHT//2 + radius * math.sin(angle)
+        
+        # Tamanho pulsante mais suave
+        wave_size = int(10 * (1 + 0.3 * math.sin(time_factor * 1.0 + i * 0.8)))
+        wave_alpha = int(alpha * 0.5)  # Mais transparente
+        
+        wave_surf = pygame.Surface((wave_size * 2, wave_size * 2), pygame.SRCALPHA)
+        pygame.draw.circle(wave_surf, (255, 150, 150, wave_alpha), (wave_size, wave_size), wave_size)
+        screen.blit(wave_surf, (wave_x - wave_size, wave_y - wave_size))
+
 def draw_guess_modal():
     """Desenha o modal para adivinhar a música"""
     global btn_modal_confirm, btn_modal_cancel
@@ -1288,6 +1553,10 @@ def draw_play():
     
     # Desenha a animação de sucesso se ativa
     draw_success_animation()
+    
+    # Desenha as animações de acerto/erro de música se ativas
+    draw_music_success_animation()
+    draw_music_error_animation()
 
 def draw_detector():
     purple_start = (60, 20, 80)
@@ -1475,8 +1744,14 @@ while running:
                             # Mensagem diferente se acertou exatamente ou com pequenos erros
                             if similarity == 1.0:
                                 message = f"PERFEITO: {current_song_data.nome}!"
+                                music_animation_message = f"PERFEITO!\n{current_song_data.nome}"
                             else:
                                 message = f"ACERTOU: {current_song_data.nome}!"
+                                music_animation_message = f"ACERTOU!\n{current_song_data.nome}"
+                            
+                            # Ativa a animação de sucesso
+                            show_music_success_animation = True
+                            music_animation_start_time = pygame.time.get_ticks()
 
                             start_round()
                             if current_song_seq:
@@ -1486,6 +1761,12 @@ while running:
                             lives -= 1
                             similarity = calculate_similarity(guess, real)
                             message = f"Errou! Vidas: {lives}"
+                            music_animation_message = f"ERRADO!\nVidas restantes: {lives}"
+                            
+                            # Ativa a animação de erro
+                            show_music_error_animation = True
+                            music_animation_start_time = pygame.time.get_ticks()
+                            
                             if lives <= 0:
                                 state = 'gameover'
                         
@@ -1516,8 +1797,14 @@ while running:
 
                         if similarity == 1.0:
                             message = f"PERFEITO: {current_song_data.nome}!"
+                            music_animation_message = f"PERFEITO!\n{current_song_data.nome}"
                         else:
                             message = f"ACERTOU: {current_song_data.nome}!"
+                            music_animation_message = f"ACERTOU!\n{current_song_data.nome}"
+                        
+                        # Ativa a animação de sucesso
+                        show_music_success_animation = True
+                        music_animation_start_time = pygame.time.get_ticks()
 
                         start_round()
                         if current_song_seq:
@@ -1527,6 +1814,12 @@ while running:
                         lives -= 1
                         similarity = calculate_similarity(guess, real)
                         message = f"Errou! Vidas: {lives}"
+                        music_animation_message = f"ERRADO!\nVidas restantes: {lives}"
+                        
+                        # Ativa a animação de erro
+                        show_music_error_animation = True
+                        music_animation_start_time = pygame.time.get_ticks()
+                        
                         if lives <= 0:
                             state = 'gameover'
                     
