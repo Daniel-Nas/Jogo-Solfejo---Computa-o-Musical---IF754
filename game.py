@@ -1253,8 +1253,12 @@ def draw_play():
     # Mensagem de feedback - estilo game notification
     if message:
         msg_color = WARNING if "tempo" in message.lower() else SUCCESS if "acertou" in message.lower() or "perfeito" in message.lower() else DANGER if "errou" in message.lower() else TEXT_PRIMARY
+
+        # Texto fica branco sobre fundo vermelho de erro para legibilidade
+        msg_text_color = WHITE if "errou" in message.lower() else msg_color
+
         # Card de notificação
-        msg_surf = FONT.render(message, True, msg_color)
+        msg_surf = FONT.render(message, True, msg_text_color)
         msg_card_rect = pygame.Rect(50, HEIGHT - 80, msg_surf.get_width() + 40, 50)
         msg_bg_color = BG_CARD
         msg_bg_alpha = 200
@@ -1466,9 +1470,9 @@ while running:
 
                             # Mensagem diferente se acertou exatamente ou com pequenos erros
                             if similarity == 1.0:
-                                message = f"✓ PERFEITO: {current_song_data.nome}!"
+                                message = f"PERFEITO: {current_song_data.nome}!"
                             else:
-                                message = f"✓ ACERTOU: {current_song_data.nome}!"
+                                message = f"ACERTOU: {current_song_data.nome}!"
 
                             start_round()
                             if current_song_seq:
@@ -1477,7 +1481,7 @@ while running:
                         else:
                             lives -= 1
                             similarity = calculate_similarity(guess, real)
-                            message = f"✗ Errou! Era '{current_song_data.nome}'. Vidas: {lives}"
+                            message = f"Errou! Vidas: {lives}"
                             if lives <= 0:
                                 state = 'gameover'
                         
@@ -1497,7 +1501,7 @@ while running:
                     
                     # Não processa se o palpite estiver vazio
                     if not guess:
-                        message = "⚠ Digite o nome da música antes de confirmar!"
+                        message = "Digite o nome da música antes de confirmar!"
                         continue
                     
                     real = current_song_data.nome or ""
@@ -1507,9 +1511,9 @@ while running:
                         similarity = calculate_similarity(guess, real)
 
                         if similarity == 1.0:
-                            message = f"✓ PERFEITO: {current_song_data.nome}!"
+                            message = f"PERFEITO: {current_song_data.nome}!"
                         else:
-                            message = f"✓ ACERTOU: {current_song_data.nome}!"
+                            message = f"ACERTOU: {current_song_data.nome}!"
 
                         start_round()
                         if current_song_seq:
@@ -1518,7 +1522,7 @@ while running:
                     else:
                         lives -= 1
                         similarity = calculate_similarity(guess, real)
-                        message = f"✗ Errou! Vidas: {lives}"
+                        message = f"Errou! Vidas: {lives}"
                         if lives <= 0:
                             state = 'gameover'
                     
