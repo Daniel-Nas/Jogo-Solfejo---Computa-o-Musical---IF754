@@ -55,7 +55,6 @@ class PitchDetector:
         p = pyaudio.PyAudio()
         pitch_detector = aubio.pitch("default", self.BUFFER_SIZE*4, self.BUFFER_SIZE, self.RATE)
         pitch_detector.set_unit("Hz")
-        pitch_detector.set_silence(-40)
 
         try:
             stream = p.open(format=self.FORMAT, channels=self.CHANNELS, rate=self.RATE, input=True, frames_per_buffer=self.BUFFER_SIZE)
@@ -553,10 +552,8 @@ def detector_process(target_note_name):
             detected_freq = freq
             detected_deviation_hz = (freq - target_freq) if target_freq else None
             note_only_name = ''.join([c for c in note_completa if not c.isdigit()])
-            within_tolerance = (target_freq is not None and
-                                 tolerance_hz is not None and
-                                 detected_deviation_hz is not None and
-                                 abs(detected_deviation_hz) <= tolerance_hz)
+            within_tolerance = (note_only_name == target_note_name)
+
 
             if within_tolerance:
                 if stable_start_time is None:
